@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -15,25 +18,35 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "cn.edu.neu.neu_portal"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
-        // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
-        // You can force using the value of versionCode by specifying the `-P force-version-code-ignoring-abi=true`
-        // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("upload") {
+            // 固定签名：key.properties + upload-keystore.jks（本地与 CI 共用）
+            val props = Properties()
+            val f = rootProject.file("key.properties")
+            if (f.exists()) {
+                FileInputStream(f).use { props.load(it) }
+                keyAlias = props["keyAlias"] as String
+                keyPassword = props["keyPassword"] as String
+                storeFile = file(props["storeFile"] as String)
+                storePassword = props["storePassword"] as String
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // 固定签名：本地与 CI 出的包同一签名，可互相覆盖安装
+            signingConfig = if (rootProject.file("key.properties").exists())
+                signingConfigs.getByName("upload")
+            else
+                signingConfigs.getByName("debug")
         }
     }
 }

@@ -71,6 +71,10 @@ flutter run -d <device>
 | 苹果开发者账号（$99/年）+ 证书 | 付费 | 1 年 |
 | TrollStore（特定 iOS 版本） | 永久 | 永久 |
 
+> **签名说明**：仓库内含个人自用的 `upload-keystore.jks` 与 `key.properties`
+> （密码 neuPortal2026），保证本地与 CI 出的包签名一致、可互相覆盖安装。
+> 若要公开分发请自行更换密钥（`keytool -genkeypair`）后重新提交。
+
 > Android APK 同样有 CI（`android-apk.yml`，ubuntu 跑机），push 后自动出包。
 
 ## 🏗️ 架构

@@ -18,7 +18,6 @@ build/
 android/local.properties
 android/.gradle/
 android/app/.cxx/
-key.properties
 
 # iOS（需在本机/CI 上 pod install）
 ios/Pods/
