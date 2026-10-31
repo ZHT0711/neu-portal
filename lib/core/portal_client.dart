@@ -1,9 +1,10 @@
 /// 一号通门户客户端：CAS 登录 + 各业务接口。
-/// 手动重定向 + Cookie 罐，保证 CASTGC / SESS_ID 全程正确传递。
+/// 手动重定向 + RFC 规范 Cookie 罐，保证 CASTGC / SESS_ID 全程正确跨域传递。
 library;
 
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'cas_crypto.dart';
@@ -16,66 +17,170 @@ class PortalException implements Exception {
   String toString() => message;
 }
 
-class _CookieJar {
-  final Map<String, Map<String, String>> _byHost = {};
+class _CookieEntry {
+  final String name;
+  final String value;
+  final String domain;
+  final String path;
+  final DateTime? expires;
+
+  _CookieEntry({
+    required this.name,
+    required this.value,
+    required this.domain,
+    required this.path,
+    this.expires,
+  });
+
+  bool get isExpired {
+    if (expires != null && DateTime.now().isAfter(expires!)) return true;
+    return false;
+  }
+}
+
+class CookieJar {
+  /// domain/host -> (cookie name -> _CookieEntry)
+  final Map<String, Map<String, _CookieEntry>> _store = {};
+
+  static List<String> splitSetCookie(String raw) {
+    final result = <String>[];
+    var start = 0;
+    var inExpires = false;
+    for (var i = 0; i < raw.length; i++) {
+      if (i >= 8 && raw.substring(i - 8, i).toLowerCase() == 'expires=') {
+        inExpires = true;
+      }
+      if (raw[i] == ';') {
+        inExpires = false;
+      }
+      if (raw[i] == ',') {
+        if (inExpires) continue;
+        final part = raw.substring(start, i).trim();
+        if (part.isNotEmpty) result.add(part);
+        start = i + 1;
+      }
+    }
+    final last = raw.substring(start).trim();
+    if (last.isNotEmpty) result.add(last);
+    return result;
+  }
 
   void absorb(Uri uri, http.StreamedResponse resp) {
-    final sc = resp.headers['set-cookie'];
+    absorbRaw(uri, resp.headers['set-cookie']);
+  }
+
+  void absorbRaw(Uri uri, String? sc) {
     if (sc == null || sc.isEmpty) return;
-    final host = uri.host;
-    final store = _byHost.putIfAbsent(host, () => {});
-    for (final part in _splitSetCookie(sc)) {
-      final i = part.indexOf('=');
-      if (i <= 0) continue;
-      final name = part.substring(0, i).trim();
-      var value = part.substring(i + 1).trim();
-      final semi = value.indexOf(';');
-      if (semi >= 0) value = value.substring(0, semi);
-      if (value.isEmpty) {
-        store.remove(name);
+
+    for (final rawCookie in splitSetCookie(sc)) {
+      final parts = rawCookie.split(';');
+      if (parts.isEmpty) continue;
+
+      final first = parts[0].trim();
+      final eq = first.indexOf('=');
+      if (eq <= 0) continue;
+      final name = first.substring(0, eq).trim();
+      final value = first.substring(eq + 1).trim();
+      if (name.isEmpty) continue;
+
+      var domain = uri.host.toLowerCase();
+      var path = '/';
+      DateTime? expires;
+      var expired = value.isEmpty;
+
+      for (var i = 1; i < parts.length; i++) {
+        final attr = parts[i].trim();
+        final attrEq = attr.indexOf('=');
+        final attrName =
+            (attrEq > 0 ? attr.substring(0, attrEq) : attr).trim().toLowerCase();
+        final attrVal = attrEq > 0 ? attr.substring(attrEq + 1).trim() : '';
+
+        if (attrName == 'domain' && attrVal.isNotEmpty) {
+          domain = attrVal.toLowerCase();
+          if (domain.startsWith('.')) domain = domain.substring(1);
+        } else if (attrName == 'path' && attrVal.isNotEmpty) {
+          path = attrVal;
+        } else if (attrName == 'max-age') {
+          final sec = int.tryParse(attrVal);
+          if (sec != null) {
+            if (sec <= 0) {
+              expired = true;
+            } else {
+              expires = DateTime.now().add(Duration(seconds: sec));
+            }
+          }
+        }
+      }
+
+      final domainStore = _store.putIfAbsent(domain, () => {});
+      if (expired) {
+        domainStore.remove(name);
       } else {
-        store[name] = value;
+        domainStore[name] = _CookieEntry(
+          name: name,
+          value: value,
+          domain: domain,
+          path: path,
+          expires: expires,
+        );
       }
     }
   }
 
-  void clear() => _byHost.clear();
+  bool _matchesDomain(String host, String domain) {
+    final h = host.toLowerCase();
+    final d = domain.toLowerCase();
+    if (h == d) return true;
+    if (h.endsWith('.$d')) return true;
+    return false;
+  }
+
+  void clear() => _store.clear();
 
   String? headerFor(Uri uri) {
-    final exact = _byHost[uri.host];
+    final host = uri.host.toLowerCase();
+    final path = uri.path.isEmpty ? '/' : uri.path;
     final pairs = <String>[];
-    if (exact != null) {
-      exact.forEach((k, v) => pairs.add('$k=$v'));
+
+    for (final entry in _store.entries) {
+      if (_matchesDomain(host, entry.key)) {
+        for (final cookie in entry.value.values) {
+          if (!cookie.isExpired &&
+              (cookie.path == '/' || path.startsWith(cookie.path))) {
+            pairs.add('${cookie.name}=${cookie.value}');
+          }
+        }
+      }
     }
     return pairs.isEmpty ? null : pairs.join('; ');
   }
 
-  bool hasCookie(Uri uri, String name) =>
-      _byHost[uri.host]?[name] != null;
-
-  /// 处理 http 包把多个 Set-Cookie 拼在一起的情况。
-  static Iterable<String> _splitSetCookie(String sc) sync* {
-    final buf = StringBuffer();
-    var inDate = false;
-    for (var i = 0; i < sc.length; i++) {
-      final ch = sc[i];
-      if (ch == ',' && !inDate) {
-        final s = buf.toString().trim();
-        if (s.isNotEmpty) yield s;
-        buf.clear();
-        continue;
+  bool hasCookie(Uri uri, String name) {
+    final host = uri.host.toLowerCase();
+    for (final entry in _store.entries) {
+      if (_matchesDomain(host, entry.key)) {
+        final c = entry.value[name];
+        if (c != null && !c.isExpired && c.value.isNotEmpty) return true;
       }
-      // Expires=Wed, 21 Oct ... 中逗号后跟空格+两位数字/字母即日期内部
-      if (inDate && ch == ' ') {
-        inDate = false;
-      }
-      if (ch == ';' && sc.startsWith(RegExp(r'expires=', caseSensitive: false), i + 1)) {
-        inDate = true;
-      }
-      buf.write(ch);
     }
-    final last = buf.toString().trim();
-    if (last.isNotEmpty) yield last;
+    return false;
+  }
+
+  Map<String, Map<String, String>> cookieSnapshot() {
+    final out = <String, Map<String, String>>{};
+    for (final entry in _store.entries) {
+      final m = <String, String>{};
+      for (final c in entry.value.values) {
+        if (!c.isExpired) m[c.name] = c.value;
+      }
+      if (m.isNotEmpty) {
+        out[entry.key] = m;
+        if (!entry.key.startsWith('.')) {
+          out['.${entry.key}'] = Map.of(m);
+        }
+      }
+    }
+    return out;
   }
 }
 
@@ -84,18 +189,15 @@ class PortalClient {
   static const portalBase = 'https://personal.neu.edu.cn/portal';
 
   final http.Client _http = http.Client();
-  final _CookieJar _cookies = _CookieJar();
+  final CookieJar _cookies = CookieJar();
+
+  @visibleForTesting
+  CookieJar get cookies => _cookies;
 
   bool get isLoggedIn => _cookies.hasCookie(Uri.parse(portalBase), 'SESS_ID');
 
   /// 供 WebView 注入的会话快照：host → {name: value}。
-  Map<String, Map<String, String>> cookieSnapshot() {
-    final out = <String, Map<String, String>>{};
-    _cookies._byHost.forEach((host, kv) {
-      if (kv.isNotEmpty) out[host] = Map.of(kv);
-    });
-    return out;
-  }
+  Map<String, Map<String, String>> cookieSnapshot() => _cookies.cookieSnapshot();
 
   static const _ua =
       'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -115,7 +217,6 @@ class PortalClient {
       req.followRedirects = false;
       final resp = await _http.send(req).timeout(const Duration(seconds: 20));
       _cookies.absorb(Uri.parse('${req.url.scheme}://${req.url.host}'), resp);
-      // http 包的 headers 已按 host 记录；上面 absorb 用 req.url 更准确
       final loc = resp.headers['location'];
       if (resp.statusCode >= 300 && resp.statusCode < 400 && loc != null) {
         final next = Uri.parse(req.url.toString()).resolve(loc);
@@ -152,7 +253,7 @@ class PortalClient {
     final execution =
         RegExp(r'name="execution"\s+value="([^"]+)"').firstMatch(page)?.group(1);
     if (lt == null || execution == null) {
-      throw PortalException('登录页解析失败，请稍后重试');
+      throw PortalException('统一身份认证页加载失败，请检查网络或校园 VPN 后重试');
     }
 
     // 2. RSA 加密并提交
@@ -174,21 +275,81 @@ class PortalClient {
           .join('&');
     final postResp = await _send(postReq);
     final finalUrl = postResp.request?.url ?? loginUri;
+    final postHtml = await _respText(postResp);
 
-    // 3. 校验会话
-    final sessUri = Uri.parse(portalBase);
-    if (!_cookies.hasCookie(sessUri, 'SESS_ID')) {
-      final body = await _respText(postResp);
-      final m = RegExp(r'id="(?:msg|errorMsg)"[^>]*>([^<]+)<').firstMatch(body);
-      throw PortalException(
-          m?.group(1)?.trim() ?? '账号或密码错误（或需要二次验证）');
+    // 3. 校验认证结果
+    // 若最终停留/重定向在 CAS 登录页，说明认证未通过
+    if (finalUrl.host.contains('pass.neu.edu.cn') ||
+        finalUrl.path.contains('/tpass/login')) {
+      final m = RegExp(
+        r'<(?:span|div|p)[^>]*id="(?:errormsg|msg|msg_i18n)"[^>]*>([\s\S]*?)<\/(?:span|div|p)>',
+        caseSensitive: false,
+      ).firstMatch(postHtml);
+      final rawMsg = m?.group(1)?.replaceAll(RegExp(r'<[^>]+>'), '').trim();
+      if (rawMsg != null && rawMsg.isNotEmpty && !rawMsg.contains('null')) {
+        throw PortalException(rawMsg);
+      }
+      throw PortalException('账号或密码错误（如需二次短信验证，请先在网页端完成设备信任绑定）');
     }
-    if (!finalUrl.toString().startsWith(portalBase)) {
-      // 再跟一次到门户
-      await _send(http.Request('GET', Uri.parse(portalBase))
-        ..headers.addAll(_headers(sessUri)));
+
+    // 尝试直接从重定向抵达的门户首页解析用户信息
+    if (finalUrl.toString().startsWith(portalBase)) {
+      final user = _extractUserFromHtml(postHtml);
+      if (user != null) return user;
     }
+
+    // 若未能直接获取（例如重定向停在中间页），请求门户首页
     return fetchUserInfo();
+  }
+
+  /// 从 HTML 中提取 window.userInfoDSL。
+  @visibleForTesting
+  static PortalUser? extractUserFromHtml(String html) => _extractUserFromHtml(html);
+
+  static PortalUser? _extractUserFromHtml(String html) {
+    final idx = html.indexOf('userInfoDSL');
+    if (idx < 0) return null;
+    final eqIdx = html.indexOf('=', idx);
+    if (eqIdx < 0) return null;
+    final startBrace = html.indexOf('{', eqIdx);
+    if (startBrace < 0) return null;
+
+    var depth = 0;
+    var inString = false;
+    var escape = false;
+    for (var i = startBrace; i < html.length; i++) {
+      final ch = html[i];
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch == '\\') {
+        escape = true;
+        continue;
+      }
+      if (ch == '"') {
+        inString = !inString;
+        continue;
+      }
+      if (!inString) {
+        if (ch == '{') {
+          depth++;
+        } else if (ch == '}') {
+          depth--;
+          if (depth == 0) {
+            final jsonStr = html.substring(startBrace, i + 1);
+            try {
+              final decoded = jsonDecode(jsonStr);
+              if (decoded is Map<String, dynamic>) {
+                return PortalUser.fromInfoJson(decoded);
+              }
+            } catch (_) {}
+            break;
+          }
+        }
+      }
+    }
+    return null;
   }
 
   /// 从门户首页 HTML 中解析 window.userInfoDSL。
@@ -196,11 +357,17 @@ class PortalClient {
     final uri = Uri.parse(portalBase);
     final resp = await _send(http.Request('GET', uri)
       ..headers.addAll(_headers(uri)));
+    final finalUrl = resp.request?.url ?? uri;
+    if (finalUrl.host.contains('pass.neu.edu.cn') ||
+        finalUrl.path.contains('/tpass/login')) {
+      throw PortalException('统一身份认证会话已失效，请重新登录');
+    }
+
     final html = await _respText(resp);
-    final m = RegExp(r'window\.userInfoDSL\s*=\s*(\{.*?\})\s*<').firstMatch(html);
-    if (m == null) throw PortalException('会话已失效，请重新登录');
-    final j = jsonDecode(m.group(1)!) as Map<String, dynamic>;
-    return PortalUser.fromInfoJson(j);
+    final user = _extractUserFromHtml(html);
+    if (user != null) return user;
+
+    throw PortalException('会话未能正常建立，请重新登录');
   }
 
   Future<Map<String, dynamic>> _api(String path,
@@ -209,6 +376,11 @@ class PortalClient {
         .replace(queryParameters: query);
     final resp = await _send(http.Request('GET', uri)
       ..headers.addAll(_headers(uri, xhr: true)));
+    final finalUrl = resp.request?.url ?? uri;
+    if (finalUrl.host.contains('pass.neu.edu.cn') ||
+        finalUrl.path.contains('/tpass/login')) {
+      throw PortalException('统一身份认证会话已失效，请重新登录');
+    }
     final text = await _respText(resp);
     if (text.isEmpty) throw PortalException('接口返回为空');
     final j = jsonDecode(text);

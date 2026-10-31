@@ -198,6 +198,8 @@ class _WebViewPageState extends State<WebViewPage> {
           if (location.protocol !== 'https:' || location.hostname !== 'pass.neu.edu.cn' ||
               (location.port && location.port !== '443') ||
               !['/tpass/login', '/tpass/login/'].includes(location.pathname)) return;
+          var uIn = document.getElementById('un'); if (uIn) uIn.disabled = true;
+          var pIn = document.getElementById('pd'); if (pIn) pIn.disabled = true;
           var f = document.getElementById('rsa'); if (f) f.value = '$rsa';
           var u = document.getElementById('ul'); if (u) u.value = '${creds.$1.length}';
           var p = document.getElementById('pl'); if (p) p.value = '${creds.$2.length}';
