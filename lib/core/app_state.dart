@@ -390,7 +390,7 @@ class AppState extends ChangeNotifier {
     }
 
     out.sort((a, b) => a.slot.startMinutes.compareTo(b.slot.startMinutes));
-    return out;
+    return out.mergeConsecutive();
   }
 
   List<CourseOccurrence> todayAgenda() => agendaForDate(DateTime.now());

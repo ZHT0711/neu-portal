@@ -27,6 +27,7 @@ class _SchedulePageState extends State<SchedulePage> {
   static const double _rowH = 92; // 一个大节（2 小节）行高
 
   int _offset = 0; // 相对锚点周的偏移
+  bool _fitToScreen = true; // 默认整周一屏，无需横向/纵向滑动
   final _scroll = ScrollController();
   final Map<String, List<CourseOccurrence>> _remoteCache = {};
   bool _fetching = false;
@@ -122,6 +123,18 @@ class _SchedulePageState extends State<SchedulePage> {
         appBar: PageAppBar(
           title: '课表',
           actions: [
+            Tooltip(
+              message: _fitToScreen ? '切换为滑动展开' : '切换为整周一屏',
+              child: IconButton(
+                onPressed: () {
+                  HapticFeedback.selectionClick();
+                  setState(() => _fitToScreen = !_fitToScreen);
+                },
+                icon: Icon(_fitToScreen
+                    ? Icons.fit_screen
+                    : Icons.view_week_outlined),
+              ),
+            ),
             if (_fetching)
               const Padding(
                 padding: EdgeInsets.only(right: 16),
@@ -149,22 +162,32 @@ class _SchedulePageState extends State<SchedulePage> {
           children: [
             weekSwitcher,
             _SemesterBanner(week: week),
-            if (MediaQuery.sizeOf(context).width <
-                680 * MediaQuery.textScalerOf(context).scale(1))
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text('左右滑动查看整周 · 点按课程查看详情',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: scheme.onSurfaceVariant)),
-              ),
+            _ScheduleModeBar(
+              fitToScreen: _fitToScreen,
+              onToggle: () {
+                HapticFeedback.selectionClick();
+                setState(() => _fitToScreen = !_fitToScreen);
+              },
+            ),
             Expanded(
               child: SingleChildScrollView(
                 controller: _scroll,
                 padding: EdgeInsets.only(bottom: portalBottomInset(context)),
                 child: LayoutBuilder(
-                    builder: (context, constraints) => SingleChildScrollView(
+                  builder: (context, constraints) => _fitToScreen
+                      ? SizedBox(
+                          width: constraints.maxWidth,
+                          child: _Grid(
+                            days: days,
+                            weekStart: _weekStart,
+                            today: today,
+                            isCurrentWeek: _isCurrent,
+                            fitToScreen: true,
+                            rowHeight: 60.0,
+                            onEventTap: (occ) => _showDetail(context, occ),
+                          ),
+                        )
+                      : SingleChildScrollView(
                           scrollDirection: Axis.horizontal,
                           child: SizedBox(
                             width: constraints.maxWidth.clamp(
@@ -175,10 +198,13 @@ class _SchedulePageState extends State<SchedulePage> {
                               weekStart: _weekStart,
                               today: today,
                               isCurrentWeek: _isCurrent,
+                              fitToScreen: false,
+                              rowHeight: 92.0,
                               onEventTap: (occ) => _showDetail(context, occ),
                             ),
                           ),
-                        )),
+                        ),
+                ),
               ),
             ),
           ],
@@ -213,6 +239,24 @@ class _SchedulePageState extends State<SchedulePage> {
                 CupertinoButton(
                   padding: EdgeInsets.zero,
                   minimumSize: const Size(32, 32),
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _fitToScreen = !_fitToScreen);
+                  },
+                  child: Semantics(
+                    label: _fitToScreen ? '切换为滑动展开' : '切换为整周一屏',
+                    button: true,
+                    child: Icon(
+                      _fitToScreen
+                          ? CupertinoIcons.rectangle_grid_1x2
+                          : CupertinoIcons.viewfinder,
+                      size: 20,
+                    ),
+                  ),
+                ),
+                CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(32, 32),
                   onPressed: () => _showEventForm(context),
                   child: Semantics(
                     label: '添加日程',
@@ -244,25 +288,20 @@ class _SchedulePageState extends State<SchedulePage> {
           ),
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   weekSwitcher,
                   const SizedBox(height: 8),
                   _SemesterBanner(week: week),
-                  if (MediaQuery.sizeOf(context).width <
-                      680 * MediaQuery.textScalerOf(context).scale(1)) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      '左右滑动查看整周 · 点按课程查看详情',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.copyWith(color: scheme.onSurfaceVariant),
-                    ),
-                  ],
+                  _ScheduleModeBar(
+                    fitToScreen: _fitToScreen,
+                    onToggle: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _fitToScreen = !_fitToScreen);
+                    },
+                  ),
                 ],
               ),
             ),
@@ -271,21 +310,36 @@ class _SchedulePageState extends State<SchedulePage> {
             child: Padding(
               padding: EdgeInsets.only(bottom: portalBottomInset(context)),
               child: LayoutBuilder(
-                builder: (context, constraints) => SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: SizedBox(
-                    width: constraints.maxWidth.clamp(
-                        680 * MediaQuery.textScalerOf(context).scale(1),
-                        double.infinity),
-                    child: _Grid(
-                      days: days,
-                      weekStart: _weekStart,
-                      today: today,
-                      isCurrentWeek: _isCurrent,
-                      onEventTap: (occ) => _showDetail(context, occ),
-                    ),
-                  ),
-                ),
+                builder: (context, constraints) => _fitToScreen
+                    ? SizedBox(
+                        width: constraints.maxWidth,
+                        child: _Grid(
+                          days: days,
+                          weekStart: _weekStart,
+                          today: today,
+                          isCurrentWeek: _isCurrent,
+                          fitToScreen: true,
+                          rowHeight: 60.0,
+                          onEventTap: (occ) => _showDetail(context, occ),
+                        ),
+                      )
+                    : SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: SizedBox(
+                          width: constraints.maxWidth.clamp(
+                              680 * MediaQuery.textScalerOf(context).scale(1),
+                              double.infinity),
+                          child: _Grid(
+                            days: days,
+                            weekStart: _weekStart,
+                            today: today,
+                            isCurrentWeek: _isCurrent,
+                            fitToScreen: false,
+                            rowHeight: 92.0,
+                            onEventTap: (occ) => _showDetail(context, occ),
+                          ),
+                        ),
+                      ),
               ),
             ),
           ),
@@ -812,6 +866,88 @@ class _WeekSwitcher extends StatelessWidget {
   }
 }
 
+// ── 课表视图模式栏（整周一屏 / 横向滑动）──────────────────
+class _ScheduleModeBar extends StatelessWidget {
+  const _ScheduleModeBar({
+    required this.fitToScreen,
+    required this.onToggle,
+  });
+
+  final bool fitToScreen;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 6),
+      child: Row(
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: onToggle,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+                decoration: BoxDecoration(
+                  color: fitToScreen
+                      ? scheme.primary.withValues(alpha: 0.12)
+                      : scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: fitToScreen
+                        ? scheme.primary.withValues(alpha: 0.35)
+                        : scheme.outlineVariant.withValues(alpha: 0.4),
+                    width: 0.8,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      fitToScreen
+                          ? Icons.fit_screen
+                          : Icons.view_week_outlined,
+                      size: 13,
+                      color: fitToScreen
+                          ? scheme.primary
+                          : scheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      fitToScreen ? '整周一屏' : '横向滑动',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: fitToScreen
+                            ? scheme.primary
+                            : scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              fitToScreen ? '一屏全览整周课程 · 点按看详情' : '左右滑动查看整周 · 点按看详情',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 10.5,
+                  ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ── 节次网格（教务规范）──────────────────────────────────
 class _Grid extends StatelessWidget {
   const _Grid({
@@ -820,6 +956,8 @@ class _Grid extends StatelessWidget {
     required this.today,
     required this.isCurrentWeek,
     required this.onEventTap,
+    this.fitToScreen = false,
+    this.rowHeight = _SchedulePageState._rowH,
   });
 
   final List<List<CourseOccurrence>> days; // 周一..周日
@@ -827,29 +965,35 @@ class _Grid extends StatelessWidget {
   final DateTime today;
   final bool isCurrentWeek;
   final void Function(CourseOccurrence) onEventTap;
-
-  static const double _rowH = _SchedulePageState._rowH;
+  final bool fitToScreen;
+  final double rowHeight;
 
   /// 分钟 → 网格 Y 坐标（按节次行，用于“现在”指示线）。
-  static double minuteToY(int minutes) {
+  static double minuteToY(int minutes, double rowH) {
     final p = Semester.periodOf(minutes);
     final pairIdx = (p - 1) ~/ 2;
     final within = (p - 1) % 2;
     final s = Semester.periodStarts[p - 1];
     final e = Semester.periodEnds[p - 1];
     final frac = ((minutes - s) / (e - s)).clamp(0.0, 1.0);
-    return pairIdx * _rowH + (within + frac) * _rowH / 2;
+    return pairIdx * rowH + (within + frac) * rowH / 2;
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final contentH = _rowH * 5;
+    final double headerH = (fitToScreen ? 38.0 : 48.0) *
+        MediaQuery.textScalerOf(context).scale(1);
+    final contentH = rowHeight * 5;
 
     final gridContent = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _PeriodColumn(),
+        _PeriodColumn(
+          weekStart: weekStart,
+          fitToScreen: fitToScreen,
+          rowHeight: rowHeight,
+        ),
         for (var d = 0; d < 7; d++)
           _DayColumn(
             weekday: d + 1,
@@ -857,7 +1001,9 @@ class _Grid extends StatelessWidget {
             occurrences: days[d],
             isToday: isCurrentWeek &&
                 _sameDay(weekStart.add(Duration(days: (d + 1) % 7)), today),
-            flex: d >= 5 ? 62 : 100,
+            flex: fitToScreen ? (d >= 5 ? 75 : 100) : (d >= 5 ? 62 : 100),
+            fitToScreen: fitToScreen,
+            rowHeight: rowHeight,
             onEventTap: onEventTap,
           ),
       ],
@@ -884,9 +1030,9 @@ class _Grid extends StatelessWidget {
           children: [
             grid,
             Positioned(
-              left: 64,
+              left: fitToScreen ? 24 : 64,
               right: 10,
-              top: 52 + minuteToY(cur),
+              top: headerH + minuteToY(cur, rowHeight),
               child: IgnorePointer(
                 child: Container(
                   height: 1.6,
@@ -905,7 +1051,7 @@ class _Grid extends StatelessWidget {
         );
       }
     }
-    return SizedBox(height: contentH + 52, child: grid);
+    return SizedBox(height: contentH + headerH + 28, child: grid);
   }
 
   bool _sameDay(DateTime a, DateTime b) =>
@@ -913,48 +1059,105 @@ class _Grid extends StatelessWidget {
 }
 
 class _PeriodColumn extends StatelessWidget {
-  const _PeriodColumn();
+  const _PeriodColumn({
+    required this.weekStart,
+    this.fitToScreen = false,
+    this.rowHeight = _SchedulePageState._rowH,
+  });
+
+  final DateTime weekStart;
+  final bool fitToScreen;
+  final double rowHeight;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return SizedBox(
-      width: 64,
+      width: fitToScreen ? 24 : 64,
       child: Column(
         children: [
+          Padding(
+            padding: EdgeInsets.symmetric(vertical: fitToScreen ? 2 : 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${weekStart.month}月',
+                  style: TextStyle(
+                    fontSize: fitToScreen ? 9.5 : 11,
+                    fontWeight: FontWeight.w700,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  '',
+                  style: TextStyle(
+                    fontSize: fitToScreen ? 9.0 : 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
           for (var pair = 0; pair < 5; pair++)
-            SizedBox(
-              height: _Grid._rowH,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    '第${pair * 2 + 1}-${pair * 2 + 2}节',
-                    style: TextStyle(
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.w700,
-                      color: scheme.onSurfaceVariant,
+            Expanded(
+              child: fitToScreen
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${pair * 2 + 1}',
+                            style: TextStyle(
+                              fontSize: 9.0,
+                              fontWeight: FontWeight.w700,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 1),
+                          Text(
+                            '${pair * 2 + 2}',
+                            style: TextStyle(
+                              fontSize: 9.0,
+                              fontWeight: FontWeight.w600,
+                              color: scheme.onSurfaceVariant
+                                  .withValues(alpha: 0.7),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          '第${pair * 2 + 1}-${pair * 2 + 2}节',
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w700,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          Semester.hm(Semester.periodStarts[pair * 2]),
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            color: scheme.onSurfaceVariant,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                        Text(
+                          Semester.hm(Semester.periodStarts[pair * 2 + 1]),
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            color:
+                                scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    Semester.hm(Semester.periodStarts[pair * 2]),
-                    style: TextStyle(
-                      fontSize: 9.5,
-                      color: scheme.onSurfaceVariant,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                  Text(
-                    Semester.hm(Semester.periodStarts[pair * 2 + 1]),
-                    style: TextStyle(
-                      fontSize: 9.5,
-                      color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ],
-              ),
             ),
         ],
       ),
@@ -970,6 +1173,8 @@ class _DayColumn extends StatelessWidget {
     required this.isToday,
     required this.flex,
     required this.onEventTap,
+    this.fitToScreen = false,
+    this.rowHeight = _SchedulePageState._rowH,
   });
 
   final int weekday;
@@ -978,8 +1183,8 @@ class _DayColumn extends StatelessWidget {
   final bool isToday;
   final int flex;
   final void Function(CourseOccurrence) onEventTap;
-
-  static const double _rowH = _SchedulePageState._rowH;
+  final bool fitToScreen;
+  final double rowHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -990,48 +1195,58 @@ class _DayColumn extends StatelessWidget {
       flex: flex,
       child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            decoration: isToday
-                ? BoxDecoration(
-                    color: scheme.primary.withValues(alpha: 0.1),
-                    borderRadius:
-                        const BorderRadius.vertical(top: Radius.circular(20)),
-                  )
-                : null,
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      Fmt.weekNames[weekday - 1],
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: isToday ? FontWeight.w800 : FontWeight.w500,
-                        color:
-                            isToday ? scheme.primary : scheme.onSurfaceVariant,
+          Padding(
+            padding: EdgeInsets.symmetric(vertical: fitToScreen ? 2 : 6),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+              decoration: isToday
+                  ? BoxDecoration(
+                      color: scheme.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    )
+                  : null,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        fitToScreen
+                            ? ['一', '二', '三', '四', '五', '六', '日'][weekday - 1]
+                            : Fmt.weekNames[weekday - 1],
+                        style: TextStyle(
+                          fontSize: fitToScreen ? 10.5 : 11,
+                          fontWeight:
+                              isToday ? FontWeight.w800 : FontWeight.w600,
+                          color: isToday
+                              ? scheme.primary
+                              : scheme.onSurfaceVariant,
+                        ),
                       ),
-                    ),
-                    if (holiday) ...[
-                      const SizedBox(width: 3),
-                      Text('休',
-                          style:
-                              TextStyle(fontSize: 8.5, color: scheme.tertiary)),
+                      if (holiday && !fitToScreen) ...[
+                        const SizedBox(width: 2),
+                        Text('休',
+                            style:
+                                TextStyle(fontSize: 8, color: scheme.tertiary)),
+                      ],
                     ],
-                  ],
-                ),
-                Text(
-                  '${date.month}/${date.day}',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: isToday
-                        ? scheme.primary
-                        : scheme.onSurfaceVariant.withValues(alpha: 0.7),
-                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 1),
+                  Text(
+                    fitToScreen ? '${date.day}' : '${date.month}/${date.day}',
+                    style: TextStyle(
+                      fontSize: fitToScreen ? 9.0 : 10,
+                      fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
+                      color: isToday
+                          ? scheme.primary
+                          : scheme.onSurfaceVariant.withValues(alpha: 0.75),
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           Expanded(
@@ -1044,7 +1259,7 @@ class _DayColumn extends StatelessWidget {
                       for (var pair = 0; pair < 5; pair++)
                         Expanded(
                           child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 3),
+                            margin: const EdgeInsets.symmetric(horizontal: 2),
                             decoration: BoxDecoration(
                               border: Border(
                                 top: pair == 0
@@ -1061,13 +1276,13 @@ class _DayColumn extends StatelessWidget {
                   ),
                 ),
                 if (holiday && occurrences.isEmpty)
-                  const Positioned(
-                    left: 4,
-                    right: 4,
-                    top: 40,
-                    child: Text('假期',
+                  Positioned(
+                    left: 2,
+                    right: 2,
+                    top: rowHeight * 0.3,
+                    child: const Text('假期',
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 9.5, color: Colors.grey)),
+                        style: TextStyle(fontSize: 9.0, color: Colors.grey)),
                   ),
                 for (final o in occurrences) _buildBlock(context, o),
               ],
@@ -1087,8 +1302,8 @@ class _DayColumn extends StatelessWidget {
     if (sp > 10) return const SizedBox.shrink();
     sp = sp.clamp(1, 10);
     ep = ep.clamp(1, 10);
-    final top = ((sp - 1) * _rowH) / 2;
-    final h = ((ep - sp + 1) * _rowH) / 2;
+    final top = ((sp - 1) * rowHeight) / 2;
+    final h = ((ep - sp + 1) * rowHeight) / 2;
     final custom = slot.kind == 'custom';
     final exam = slot.kind == 'exam';
     final weekText = slot.weekStart > 0 && slot.weekEnd < 99
@@ -1096,31 +1311,37 @@ class _DayColumn extends StatelessWidget {
             ? '${slot.weekStart}周'
             : '${slot.weekStart}-${slot.weekEnd}周')
         : '';
-    final tall = h >= 80;
+    final tall = h >= (fitToScreen ? 70 : 80);
+    final isCompact = fitToScreen || h < 55;
+
     return Positioned(
-      left: 4,
-      right: 4,
-      top: top,
-      height: h,
+      left: fitToScreen ? 1.5 : 4,
+      right: fitToScreen ? 1.5 : 4,
+      top: top + 1,
+      height: (h - 2).clamp(16.0, double.infinity),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(9),
+          borderRadius: BorderRadius.circular(fitToScreen ? 6 : 9),
           onTap: () => onEventTap(occ),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+            padding: EdgeInsets.symmetric(
+              horizontal: fitToScreen ? 2 : 4,
+              vertical: fitToScreen ? 2 : 3,
+            ),
             decoration: BoxDecoration(
-              color: tone.withValues(alpha: custom ? 0.10 : 0.16),
-              borderRadius: BorderRadius.circular(9),
+              color: tone.withValues(alpha: custom ? 0.10 : 0.18),
+              borderRadius: BorderRadius.circular(fitToScreen ? 6 : 9),
               border: Border.all(
-                color: tone.withValues(alpha: custom ? 0.7 : 0.55),
-                width: custom ? 1.2 : 1,
+                color: tone.withValues(alpha: custom ? 0.7 : 0.6),
+                width: custom ? 1.2 : 0.9,
               ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                if (exam || custom)
+                if ((exam || custom) && !isCompact && h >= 65) ...[
                   Row(
                     children: [
                       Icon(exam ? Icons.fact_check : Icons.push_pin,
@@ -1133,36 +1354,42 @@ class _DayColumn extends StatelessWidget {
                               color: tone)),
                     ],
                   ),
-                if (exam || custom) const SizedBox(height: 1),
-                Text(
-                  slot.name,
-                  maxLines: tall ? 3 : 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 9.5,
-                    height: 1.15,
-                    fontWeight: FontWeight.w700,
-                    color: tone,
+                  const SizedBox(height: 1),
+                ],
+                Flexible(
+                  child: Text(
+                    slot.name,
+                    maxLines: h >= 50 ? (tall ? 3 : 2) : 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: fitToScreen ? 8.5 : 9.5,
+                      height: 1.15,
+                      fontWeight: FontWeight.w700,
+                      color: tone,
+                    ),
                   ),
                 ),
-                if (tall && weekText.isNotEmpty)
+                if (tall && weekText.isNotEmpty && h >= 80)
                   Text(
                     weekText,
                     style: TextStyle(
-                      fontSize: 8.5,
+                      fontSize: 8.0,
                       color: tone.withValues(alpha: 0.85),
                     ),
                   ),
-                const Spacer(),
-                Text(
-                  slot.room,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 8.5,
-                    color: tone.withValues(alpha: 0.9),
+                if (slot.room.isNotEmpty && h >= 48) ...[
+                  const Spacer(),
+                  Text(
+                    slot.room,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: fitToScreen ? 7.5 : 8.5,
+                      color: tone.withValues(alpha: 0.92),
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),

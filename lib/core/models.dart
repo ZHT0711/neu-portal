@@ -175,6 +175,58 @@ class CourseOccurrence {
   const CourseOccurrence(this.date, this.slot);
 }
 
+extension CourseOccurrenceListExtension on List<CourseOccurrence> {
+  /// 合并同一天相邻且同名同地点的课程节次（例如第1节与第2节合为第1-2节），
+  /// 避免在课表中被切碎成两个独立卡片。
+  List<CourseOccurrence> mergeConsecutive() {
+    if (length <= 1) return this;
+    final sorted = List<CourseOccurrence>.from(this)
+      ..sort((a, b) => a.slot.startMinutes.compareTo(b.slot.startMinutes));
+
+    final merged = <CourseOccurrence>[];
+    for (final curr in sorted) {
+      if (merged.isEmpty) {
+        merged.add(curr);
+        continue;
+      }
+      final prev = merged.last;
+      final sameDate = prev.date.year == curr.date.year &&
+          prev.date.month == curr.date.month &&
+          prev.date.day == curr.date.day;
+      final sameName = prev.slot.name.trim() == curr.slot.name.trim();
+      final sameKind = prev.slot.kind == curr.slot.kind;
+      final sameRoom = prev.slot.room.trim() == curr.slot.room.trim();
+      final sameTeacher = prev.slot.teacher.trim() == curr.slot.teacher.trim();
+      final gap = curr.slot.startMinutes - prev.slot.endMinutes;
+      final isAdjacent = gap >= 0 && gap <= 35;
+
+      if (sameDate && sameName && sameKind && sameRoom && sameTeacher && isAdjacent) {
+        final combined = CourseSlot(
+          weekday: prev.slot.weekday,
+          startMinutes: prev.slot.startMinutes,
+          endMinutes: curr.slot.endMinutes,
+          name: prev.slot.name,
+          room: prev.slot.room,
+          teacher: prev.slot.teacher.isNotEmpty
+              ? prev.slot.teacher
+              : curr.slot.teacher,
+          kind: prev.slot.kind,
+          weekStart: prev.slot.weekStart < curr.slot.weekStart
+              ? prev.slot.weekStart
+              : curr.slot.weekStart,
+          weekEnd: prev.slot.weekEnd > curr.slot.weekEnd
+              ? prev.slot.weekEnd
+              : curr.slot.weekEnd,
+        );
+        merged[merged.length - 1] = CourseOccurrence(prev.date, combined);
+      } else {
+        merged.add(curr);
+      }
+    }
+    return merged;
+  }
+}
+
 class NewsItem {
   final String id;
   final String title;
