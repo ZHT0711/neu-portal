@@ -342,35 +342,86 @@ class _WebViewPageState extends State<WebViewPage> {
       child: Scaffold(
         appBar: PageAppBar(
           title: title,
-          leading: IconButton(
-            tooltip: _canGoBack ? '返回上一页' : '返回',
-            icon: Icon(isApple ? CupertinoIcons.back : Icons.arrow_back),
-            onPressed: smartBack,
-          ),
-          actions: [
-            IconButton(
-              tooltip: _desktop ? '切换手机版' : '切换桌面版',
-              icon: Icon(
-                _desktop ? Icons.smartphone : Icons.desktop_windows_outlined,
-                size: 22,
-              ),
-              onPressed: _toggleDesktop,
-            ),
-            PopupMenuButton<String>(
-              tooltip: '浏览选项',
-              icon: const Icon(Icons.more_horiz),
-              onSelected: _menuAction,
-              itemBuilder: (_) => [
-                const PopupMenuItem(value: 'refresh', child: Text('重新加载')),
-                const PopupMenuItem(value: 'copy', child: Text('复制当前链接')),
-                const PopupMenuItem(value: 'browser', child: Text('用系统浏览器打开')),
-                if (alternative != null)
-                  const PopupMenuItem(
-                    value: 'http',
-                    child: Text('使用 HTTP 打开（校内旧系统）'),
+          leading: isApple
+              ? Tooltip(
+                  message: _canGoBack ? '返回上一页' : '返回',
+                  child: CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(36, 36),
+                    onPressed: smartBack,
+                    child: Icon(
+                      CupertinoIcons.back,
+                      size: 24,
+                      color: IosColors.label(
+                          Theme.of(context).brightness == Brightness.dark),
+                    ),
                   ),
-              ],
-            ),
+                )
+              : IconButton(
+                  tooltip: _canGoBack ? '返回上一页' : '返回',
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: smartBack,
+                ),
+          actions: [
+            if (isApple)
+              Tooltip(
+                message: _desktop ? '切换手机版' : '切换桌面版',
+                child: CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(36, 36),
+                  onPressed: _toggleDesktop,
+                  child: Icon(
+                    _desktop
+                        ? CupertinoIcons.device_phone_portrait
+                        : CupertinoIcons.device_laptop,
+                    size: 20,
+                    color: _desktop
+                        ? scheme.primary
+                        : IosColors.label(
+                            Theme.of(context).brightness == Brightness.dark),
+                  ),
+                ),
+              )
+            else
+              IconButton(
+                tooltip: _desktop ? '切换手机版' : '切换桌面版',
+                icon: Icon(
+                  _desktop ? Icons.smartphone : Icons.desktop_windows_outlined,
+                  size: 22,
+                ),
+                onPressed: _toggleDesktop,
+              ),
+            if (isApple)
+              Tooltip(
+                message: '浏览选项',
+                child: CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(36, 36),
+                  onPressed: () => _showSafariOptions(context),
+                  child: Icon(
+                    CupertinoIcons.ellipsis,
+                    size: 20,
+                    color: IosColors.label(
+                        Theme.of(context).brightness == Brightness.dark),
+                  ),
+                ),
+              )
+            else
+              PopupMenuButton<String>(
+                tooltip: '浏览选项',
+                icon: const Icon(Icons.more_horiz),
+                onSelected: _menuAction,
+                itemBuilder: (_) => [
+                  const PopupMenuItem(value: 'refresh', child: Text('重新加载')),
+                  const PopupMenuItem(value: 'copy', child: Text('复制当前链接')),
+                  const PopupMenuItem(value: 'browser', child: Text('用系统浏览器打开')),
+                  if (alternative != null)
+                    const PopupMenuItem(
+                      value: 'http',
+                      child: Text('使用 HTTP 打开（校内旧系统）'),
+                    ),
+                ],
+              ),
           ],
         ),
         bottomNavigationBar: _buildLiquidBottomBar(context),
@@ -379,10 +430,7 @@ class _WebViewPageState extends State<WebViewPage> {
             _buildAddressBar(context),
             if (_needLogin) _buildSessionExpiredBanner(context),
             if (_error == null && _progress < 1)
-              LinearProgressIndicator(
-                value: _progress == 0 ? null : _progress,
-                minHeight: 2,
-              ),
+              _buildProgressBar(context),
             Expanded(
               child: Stack(
                 children: [
@@ -412,28 +460,12 @@ class _WebViewPageState extends State<WebViewPage> {
 
   Widget _buildAddressBar(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final dark = Theme.of(context).brightness == Brightness.dark;
     final isHttps = _currentUri.scheme == 'https';
     final hostText =
         _currentUri.host.isEmpty ? 'about:blank' : _currentUri.host;
 
-    final capsule = Container(
-      height: 32,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: isApple
-            ? (dark
-                ? Colors.white.withValues(alpha: 0.08)
-                : Colors.black.withValues(alpha: 0.05))
-            : scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: isApple
-              ? Colors.white.withValues(alpha: dark ? 0.12 : 0.4)
-              : scheme.outlineVariant.withValues(alpha: 0.5),
-          width: 0.6,
-        ),
-      ),
+    final capsuleContent = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -457,7 +489,7 @@ class _WebViewPageState extends State<WebViewPage> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 12.5,
                 fontWeight: FontWeight.w500,
                 color: isHttps ? scheme.onSurface : scheme.error,
               ),
@@ -467,10 +499,61 @@ class _WebViewPageState extends State<WebViewPage> {
       ),
     );
 
+    final Widget capsule;
+    if (isApple) {
+      capsule = IosGlassSurface(
+        radius: 12,
+        child: capsuleContent,
+      );
+    } else {
+      capsule = Container(
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: scheme.outlineVariant.withValues(alpha: 0.5),
+            width: 0.6,
+          ),
+        ),
+        child: capsuleContent,
+      );
+    }
+
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
       alignment: Alignment.center,
       child: capsule,
+    );
+  }
+
+  Widget _buildProgressBar(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 2.5,
+      child: Stack(
+        children: [
+          Container(
+            color: isApple
+                ? Colors.transparent
+                : scheme.primary.withValues(alpha: 0.1),
+          ),
+          FractionallySizedBox(
+            alignment: Alignment.centerLeft,
+            widthFactor: _progress.clamp(0.04, 1.0),
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    scheme.primary,
+                    scheme.tertiary,
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(1.5),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -541,62 +624,84 @@ class _WebViewPageState extends State<WebViewPage> {
         ? CupertinoColors.tertiaryLabel.resolveFrom(context)
         : scheme.onSurface.withValues(alpha: 0.35);
 
+    Widget navButton({
+      required String tooltip,
+      required IconData icon,
+      required VoidCallback? onPressed,
+      bool active = false,
+      double size = 20,
+    }) {
+      final enabled = onPressed != null;
+      final c = active
+          ? scheme.primary
+          : enabled
+              ? iconColor
+              : disabledColor;
+
+      return isApple
+          ? Tooltip(
+              message: tooltip,
+              child: CupertinoButton(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                minimumSize: const Size(40, 40),
+                onPressed: onPressed,
+                child: Icon(icon, size: size, color: c),
+              ),
+            )
+          : IconButton(
+              tooltip: tooltip,
+              icon: Icon(icon, size: size, color: c),
+              onPressed: onPressed,
+            );
+    }
+
     final toolbar = Container(
       height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          IconButton(
+          navButton(
             tooltip: '后退',
-            icon: Icon(
-              isApple ? CupertinoIcons.chevron_left : Icons.arrow_back_ios_new,
-              size: 20,
-            ),
-            color: _canGoBack ? iconColor : disabledColor,
+            icon: isApple
+                ? CupertinoIcons.chevron_left
+                : Icons.arrow_back_ios_new,
             onPressed: _canGoBack ? smartBack : null,
+            size: 20,
           ),
-          IconButton(
+          navButton(
             tooltip: '前进',
-            icon: Icon(
-              isApple ? CupertinoIcons.chevron_right : Icons.arrow_forward_ios,
-              size: 20,
-            ),
-            color: _canGoForward ? iconColor : disabledColor,
+            icon: isApple
+                ? CupertinoIcons.chevron_right
+                : Icons.arrow_forward_ios,
             onPressed: _canGoForward ? _goForward : null,
+            size: 20,
           ),
-          IconButton(
+          navButton(
             tooltip: '重新加载',
-            icon: Icon(
-              isApple ? CupertinoIcons.arrow_clockwise : Icons.refresh,
-              size: 21,
-            ),
-            color: iconColor,
+            icon: isApple ? CupertinoIcons.arrow_clockwise : Icons.refresh,
             onPressed: () => _load(_currentUri),
+            size: 21,
           ),
-          IconButton(
+          navButton(
             tooltip: _desktop ? '切换手机版' : '切换桌面版',
-            icon: Icon(
-              _desktop
-                  ? (isApple
-                      ? CupertinoIcons.device_phone_portrait
-                      : Icons.smartphone)
-                  : (isApple
-                      ? CupertinoIcons.device_laptop
-                      : Icons.desktop_windows_outlined),
-              size: 21,
-            ),
-            color: _desktop ? scheme.primary : iconColor,
+            icon: _desktop
+                ? (isApple
+                    ? CupertinoIcons.device_phone_portrait
+                    : Icons.smartphone)
+                : (isApple
+                    ? CupertinoIcons.device_laptop
+                    : Icons.desktop_windows_outlined),
             onPressed: _toggleDesktop,
+            active: _desktop,
+            size: 21,
           ),
-          IconButton(
+          navButton(
             tooltip: '更多选项',
-            icon: Icon(
-              isApple ? CupertinoIcons.ellipsis : Icons.more_horiz,
-              size: 22,
-            ),
-            color: iconColor,
+            icon: isApple ? CupertinoIcons.ellipsis : Icons.more_horiz,
             onPressed: () => _showSafariOptions(context),
+            size: 22,
           ),
         ],
       ),

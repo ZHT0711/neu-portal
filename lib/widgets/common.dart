@@ -23,7 +23,7 @@ class SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(6, 24, 6, 12),
+      padding: const EdgeInsets.fromLTRB(16, 22, 16, 10),
       child: Row(
         children: [
           Expanded(

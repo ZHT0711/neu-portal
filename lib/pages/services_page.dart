@@ -179,10 +179,7 @@ class _ServicesPageState extends State<ServicesPage> {
 
           // ── 专题服务 ──
           for (final sec in sections) ...[
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 24, 20, 2),
-              sliver: SliverToBoxAdapter(child: SectionHeader(sec.name)),
-            ),
+            SliverToBoxAdapter(child: SectionHeader(sec.name)),
             SliverPadding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               sliver: SliverToBoxAdapter(

@@ -42,6 +42,11 @@ class _HomePageState extends State<HomePage> {
     final now = DateTime.now();
     final today = s.todayAgenda();
     final next = s.nextAgenda();
+    final name = s.user.name.isEmpty ? '同学' : s.user.name;
+    final sid = s.user.sid.isEmpty ? 'NEUer' : s.user.sid;
+    final college = s.user.department.isEmpty ? '未来技术学院' : s.user.department;
+    final greeting = '${Fmt.greeting(now)}，$name';
+    final dateText = Fmt.full(now);
 
     return RefreshIndicator.adaptive(
       onRefresh: () async {
@@ -68,34 +73,173 @@ class _HomePageState extends State<HomePage> {
                   width: 0.5,
                 ),
               ),
-              largeTitle: Row(
+              leading: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   ClipOval(
                     child: Image.asset(
                       'assets/icon/neu_crest.png',
-                      width: 28,
-                      height: 28,
+                      width: 26,
+                      height: 26,
                       fit: BoxFit.cover,
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  const Text('首页'),
+                  const SizedBox(width: 8),
+                  const Text(
+                    '东北大学',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
                 ],
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(32, 32),
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      AppLinks.open(context, s.ecodeEntryUrl, title: 'e码通');
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 9, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withValues(alpha: 0.25),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.qr_code_2,
+                              size: 15,
+                              color: Theme.of(context).colorScheme.primary),
+                          const SizedBox(width: 4),
+                          Text(
+                            'e码通',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () {
+                      final nav = PortalNavigation.maybeOf(context);
+                      if (nav != null) nav.select(4);
+                    },
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: Image.network(
+                          s.user.avatarUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => Container(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primary
+                                .withValues(alpha: 0.15),
+                            alignment: Alignment.center,
+                            child: Text(
+                              s.user.name.isNotEmpty
+                                  ? s.user.name.characters.first
+                                  : '同',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              largeTitle: Text(
+                greeting,
               ),
               transitionBetweenRoutes: false,
             ),
-          SliverToBoxAdapter(
-            child: _Header(
-              name: s.user.name,
-              sid: s.user.sid,
-              avatarUrl: s.user.avatarUrl,
-              greeting: Fmt.greeting(now),
-              dateText: Fmt.full(now),
-              isDemo: s.mode == SessionMode.demo,
-              ecodeUrl: s.ecodeEntryUrl,
+          if (isApple)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '$sid · $college · $dateText',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    if (s.mode == SessionMode.demo) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .tertiaryContainer,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '离线演示',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onTertiaryContainer,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ),
-          ),
+          if (!isApple)
+            SliverToBoxAdapter(
+              child: _Header(
+                name: s.user.name,
+                sid: s.user.sid,
+                avatarUrl: s.user.avatarUrl,
+                greeting: Fmt.greeting(now),
+                dateText: Fmt.full(now),
+                isDemo: s.mode == SessionMode.demo,
+                ecodeUrl: s.ecodeEntryUrl,
+              ),
+            ),
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.only(top: 12),
@@ -592,8 +736,58 @@ class _TodaySchedule extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (courses.isEmpty) {
-      return const Panel(
-        child: EmptyHint('今天没有课，好好休息', icon: Icons.self_improvement),
+      final scheme = Theme.of(context).colorScheme;
+      return SizedBox(
+        width: double.infinity,
+        child: Panel(
+          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: isApple
+                      ? scheme.primary.withValues(alpha: 0.12)
+                      : scheme.surfaceContainerHighest,
+                  shape: BoxShape.circle,
+                  border: isApple
+                      ? Border.all(
+                          color: scheme.primary.withValues(alpha: 0.25),
+                          width: 1,
+                        )
+                      : null,
+                ),
+                child: Icon(
+                  isApple
+                      ? CupertinoIcons.sparkles
+                      : Icons.self_improvement,
+                  size: 24,
+                  color: scheme.primary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '今天没有课，好好休息',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: scheme.onSurface,
+                  letterSpacing: -0.2,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                '享受自习与休闲时光 · 可在「完整课表」查看本周日程',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
       );
     }
     final now = DateTime.now();
