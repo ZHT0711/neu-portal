@@ -12,7 +12,6 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'models.dart';
-import 'portal_client.dart';
 import '../pages/webview_page.dart';
 
 class AppLinks {
