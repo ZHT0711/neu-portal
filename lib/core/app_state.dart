@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'demo_data.dart';
 import 'models.dart';
+import 'platform_style.dart';
 import 'portal_client.dart';
 import 'semester.dart';
 import 'theme.dart';
@@ -68,10 +69,12 @@ class AppState extends ChangeNotifier {
   ThemeMode themeMode = ThemeMode.system;
   Color seedColor = NeuColors.seed;
   bool useDynamicColor = false;
+  PlatformStylePreference platformStyle = PlatformStylePreference.auto;
 
   static const _kMode = 'ui.themeMode';
   static const _kSeed = 'ui.seed';
   static const _kDyn = 'ui.dynamic';
+  static const _kPlatform = 'ui.platform';
   static const _kEvents = 'planner.events';
   static const _kSession = 'session.mode';
 
@@ -87,6 +90,21 @@ class AppState extends ChangeNotifier {
     useDynamicColor = p.getBool(_kDyn) ?? false;
     final s = p.getInt(_kSeed);
     if (s != null) seedColor = Color(s);
+    final platIdx = p.getInt(_kPlatform);
+    if (platIdx != null &&
+        platIdx >= 0 &&
+        platIdx < PlatformStylePreference.values.length) {
+      platformStyle = PlatformStylePreference.values[platIdx];
+    } else if (kIsWeb) {
+      final q = Uri.base.queryParameters['platform'] ??
+          Uri.base.queryParameters['style'];
+      if (q == 'ios') {
+        platformStyle = PlatformStylePreference.ios;
+      } else if (q == 'android') {
+        platformStyle = PlatformStylePreference.android;
+      }
+    }
+    setPlatformPreference(platformStyle);
     _persistedLive = (p.getInt(_kSession) ?? 0) == 1;
     try {
       final raw = p.getString(_kEvents);
@@ -106,6 +124,16 @@ class AppState extends ChangeNotifier {
     themeMode = m;
     final p = await SharedPreferences.getInstance();
     await p.setInt(_kMode, m.index);
+    notifyListeners();
+  }
+
+  Future<void> setPlatformStyle(PlatformStylePreference style) async {
+    platformStyle = style;
+    setPlatformPreference(style);
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setInt(_kPlatform, style.index);
+    } catch (_) {}
     notifyListeners();
   }
 

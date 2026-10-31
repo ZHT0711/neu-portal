@@ -7,8 +7,31 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'ios_glass.dart';
 
-// Also follows Flutter's platform override, so both designs can be tested.
-bool get isApple => defaultTargetPlatform == TargetPlatform.iOS;
+enum PlatformStylePreference {
+  auto,
+  ios,
+  android,
+}
+
+PlatformStylePreference _platformPreference = PlatformStylePreference.auto;
+
+PlatformStylePreference get platformPreference => _platformPreference;
+
+void setPlatformPreference(PlatformStylePreference pref) {
+  _platformPreference = pref;
+}
+
+// Follows preference if overridden; otherwise follows defaultTargetPlatform (and Flutter's override).
+bool get isApple {
+  switch (_platformPreference) {
+    case PlatformStylePreference.ios:
+      return true;
+    case PlatformStylePreference.android:
+      return false;
+    case PlatformStylePreference.auto:
+      return defaultTargetPlatform == TargetPlatform.iOS;
+  }
+}
 
 class IosColors {
   IosColors._();
@@ -31,27 +54,46 @@ class PageAppBar extends StatelessWidget implements PreferredSizeWidget {
   final List<Widget> actions;
 
   @override
-  Size get preferredSize => Size.fromHeight(isApple ? 44 : 64);
+  Size get preferredSize => Size.fromHeight(isApple ? 50 : 64);
 
   @override
   Widget build(BuildContext context) {
     if (!isApple) {
       return AppBar(title: Text(title), actions: actions, leading: leading);
     }
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return IosGlassSurface(
-        radius: 0,
-        child: CupertinoNavigationBar(
-          middle: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-          leading: leading,
-          backgroundColor: Colors.transparent,
-          enableBackgroundFilterBlur: false,
-          border: null,
-          // Pages share one Navigator; avoid duplicate transition tags in tab views.
-          transitionBetweenRoutes: false,
-          trailing: actions.isEmpty
-              ? null
-              : Row(mainAxisSize: MainAxisSize.min, children: actions),
-        ));
+      radius: 0,
+      border: Border(
+        bottom: BorderSide(
+          color: IosColors.separator(dark).withValues(alpha: 0.35),
+          width: 0.5,
+        ),
+      ),
+      child: CupertinoNavigationBar(
+        middle: Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.41,
+            color: IosColors.label(dark),
+          ),
+        ),
+        leading: leading,
+        padding: const EdgeInsetsDirectional.only(start: 12, end: 12),
+        backgroundColor: Colors.transparent,
+        enableBackgroundFilterBlur: false,
+        border: null,
+        // Pages share one Navigator; avoid duplicate transition tags in tab views.
+        transitionBetweenRoutes: false,
+        trailing: actions.isEmpty
+            ? null
+            : Row(mainAxisSize: MainAxisSize.min, children: actions),
+      ),
+    );
   }
 }
 

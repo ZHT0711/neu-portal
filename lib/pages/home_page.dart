@@ -54,9 +54,20 @@ class _HomePageState extends State<HomePage> {
         slivers: [
           if (isApple)
             CupertinoSliverNavigationBar(
-              backgroundColor:
-                  Theme.of(context).colorScheme.surface.withValues(alpha: 0.72),
-              border: null,
+              backgroundColor: CupertinoColors.secondarySystemGroupedBackground
+                  .resolveFrom(context)
+                  .withValues(
+                      alpha: Theme.of(context).brightness == Brightness.dark
+                          ? 0.80
+                          : 0.72),
+              border: Border(
+                bottom: BorderSide(
+                  color: IosColors.separator(
+                          Theme.of(context).brightness == Brightness.dark)
+                      .withValues(alpha: 0.35),
+                  width: 0.5,
+                ),
+              ),
               largeTitle: const Text('首页'),
               transitionBetweenRoutes: false,
             ),

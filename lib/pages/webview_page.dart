@@ -1,8 +1,9 @@
-/// Embedded business browser: preserve HTTP entries and the actual WebKit identity.
+﻿/// Embedded business browser: preserve HTTP entries and the actual WebKit identity.
 library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -309,7 +310,7 @@ class _WebViewPageState extends State<WebViewPage> {
           title: title,
           leading: IconButton(
             tooltip: _canGoBack ? '返回上一页' : '返回',
-            icon: const Icon(Icons.arrow_back),
+            icon: Icon(isApple ? CupertinoIcons.back : Icons.arrow_back),
             onPressed: smartBack,
           ),
           actions: [

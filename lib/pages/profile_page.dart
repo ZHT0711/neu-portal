@@ -166,6 +166,26 @@ class _ProfilePageState extends State<ProfilePage> {
                   child: Column(
                     children: [
                       const ListTile(
+                        leading: Icon(Icons.devices_outlined),
+                        title: Text('界面风格'),
+                        subtitle: Text('跟随系统 / iOS 液态玻璃 / Material 3'),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: AdaptiveSegments<PlatformStylePreference>(
+                            values: const {
+                              PlatformStylePreference.auto: '自动',
+                              PlatformStylePreference.ios: 'iOS 液态玻璃',
+                              PlatformStylePreference.android: 'Material 3',
+                            },
+                            selected: s.platformStyle,
+                            onChanged: s.setPlatformStyle,
+                          ),
+                        ),
+                      ),
+                      const ListTile(
                         leading: Icon(Icons.contrast),
                         title: Text('主题模式'),
                         subtitle: Text('自动 / 亮色 / 暗色'),
