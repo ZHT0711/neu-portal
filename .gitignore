@@ -1,0 +1,27 @@
+# Flutter / Dart
+build/
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+
+# IDE / 系统
+.idea/
+*.iml
+.vscode/
+.DS_Store
+*.log
+
+# Android（含机器本地路径）
+android/local.properties
+android/.gradle/
+android/app/.cxx/
+key.properties
+
+# iOS（需在本机/CI 上 pod install）
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/App.framework
+ios/Flutter/Flutter.framework

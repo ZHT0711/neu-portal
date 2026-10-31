@@ -1,0 +1,313 @@
+/// 通用小组件（v2：分组面板 / 入场动画 / 数字动画 / 统一磁贴）。
+library;
+
+import 'package:flutter/material.dart';
+
+import '../core/links.dart';
+import '../core/theme.dart';
+
+/// 页面分区标题。
+class SectionHeader extends StatelessWidget {
+  const SectionHeader(this.title, {super.key, this.action, this.onAction});
+
+  final String title;
+  final String? action;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(6, 24, 6, 12),
+      child: Row(
+        children: [
+          Container(
+            width: 4,
+            height: 17,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [scheme.primary, scheme.tertiary],
+              ),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 9),
+          Text(
+            title,
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.w800, letterSpacing: 0.2),
+          ),
+          const Spacer(),
+          if (action != null)
+            GestureDetector(
+              onTap: onAction,
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                child: Row(
+                  children: [
+                    Text(action!,
+                        style: TextStyle(
+                            fontSize: 12.5, color: scheme.onSurfaceVariant)),
+                    Icon(Icons.chevron_right,
+                        size: 16, color: scheme.onSurfaceVariant),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 分组面板：自带 Material（墨水涟漪 / ListTile 正常工作），替代满屏卡片。
+class Panel extends StatelessWidget {
+  const Panel({super.key, required this.child, this.padding, this.color});
+
+  final Widget child;
+  final EdgeInsetsGeometry? padding;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final panelColor = color ??
+        (scheme.brightness == Brightness.light
+            ? Colors.white
+            : scheme.surfaceContainerLow);
+    return Material(
+      color: panelColor,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      clipBehavior: Clip.antiAlias,
+      child: padding == null ? child : Padding(padding: padding!, child: child),
+    );
+  }
+}
+
+/// 列表项入场动画（按序错开）。
+class StaggerIn extends StatefulWidget {
+  const StaggerIn({super.key, required this.child, this.index = 0});
+
+  final Widget child;
+  final int index;
+
+  @override
+  State<StaggerIn> createState() => _StaggerInState();
+}
+
+class _StaggerInState extends State<StaggerIn> {
+  bool _shown = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(Duration(milliseconds: 60 * widget.index.clamp(0, 8)), () {
+      if (mounted) setState(() => _shown = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSlide(
+      offset: _shown ? Offset.zero : const Offset(0, 0.03),
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+      child: AnimatedOpacity(
+        opacity: _shown ? 1 : 0,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOut,
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+/// 数字滚动动画（非数字内容原样显示）。
+class CountUpText extends StatelessWidget {
+  const CountUpText(
+    this.text, {
+    super.key,
+    this.style,
+    this.suffix = '',
+  });
+
+  final String text;
+  final TextStyle? style;
+  final String suffix;
+
+  @override
+  Widget build(BuildContext context) {
+    final v = double.tryParse(text);
+    if (v == null) {
+      return RichText(
+        text: TextSpan(
+          children: [
+            TextSpan(text: text, style: style),
+            if (suffix.isNotEmpty)
+              TextSpan(
+                  text: ' $suffix',
+                  style: style?.copyWith(
+                      fontSize: (style?.fontSize ?? 14) * 0.6,
+                      fontWeight: FontWeight.w500)),
+          ],
+        ),
+      );
+    }
+    final isInt = text.contains('.') == false;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: v),
+      duration: const Duration(milliseconds: 900),
+      curve: Curves.easeOutCubic,
+      builder: (context, val, _) {
+        final shown = isInt
+            ? val.round().toString()
+            : val.toStringAsFixed(1);
+        return RichText(
+          text: TextSpan(
+            children: [
+              TextSpan(text: shown, style: style),
+              if (suffix.isNotEmpty)
+                TextSpan(
+                    text: ' $suffix',
+                    style: style?.copyWith(
+                        fontSize: (style?.fontSize ?? 14) * 0.6,
+                        fontWeight: FontWeight.w500)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// 应用入口磁贴（图标优先，失败回退首字色块）。
+class AppTile extends StatelessWidget {
+  const AppTile({
+    super.key,
+    required this.name,
+    this.iconUrl,
+    this.onTap,
+    this.dense = false,
+  });
+
+  final String name;
+  final String? iconUrl;
+  final VoidCallback? onTap;
+  final bool dense;
+
+  @override
+  Widget build(BuildContext context) {
+    final tone = NeuColors.avatarColor(name);
+    final size = dense ? 42.0 : 48.0;
+    final url = iconUrl;
+    Widget icon;
+    if (url != null && url.startsWith('http')) {
+      icon = ClipRRect(
+        borderRadius: BorderRadius.circular(size / 3.2),
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: Image.network(
+            url,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _letterBox(tone, size),
+          ),
+        ),
+      );
+    } else {
+      icon = _letterBox(tone, size);
+    }
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          icon,
+          const SizedBox(height: 7),
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: dense ? 11 : 12,
+              fontWeight: FontWeight.w500,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _letterBox(Color tone, double size) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            tone.withValues(alpha: 0.22),
+            tone.withValues(alpha: 0.10),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(size / 3.2),
+        border: Border.all(color: tone.withValues(alpha: 0.30)),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        name.characters.first,
+        style: TextStyle(
+          color: tone,
+          fontSize: size * 0.42,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+/// 打开门户链接（应用内 WebView / 系统快速浏览器）。
+Future<void> openPortalLink(BuildContext context, String url,
+        {String title = '页面'}) =>
+    AppLinks.open(context, url, title: title);
+
+/// 空状态。
+class EmptyHint extends StatelessWidget {
+  const EmptyHint(this.text,
+      {super.key, this.icon = Icons.emoji_nature_outlined});
+
+  final String text;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 30),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 28, color: scheme.outline),
+          ),
+          const SizedBox(height: 12),
+          Text(text,
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+        ],
+      ),
+    );
+  }
+}

@@ -1,0 +1,43 @@
+name: neu_portal
+description: "东北大学一号通门户 — Material 3 多端客户端（Android / iOS / Windows / Web）"
+publish_to: "none"
+version: 1.2.0+3
+
+environment:
+  sdk: ">=3.5.0 <5.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  http: ^1.2.0
+  shared_preferences: ^2.3.0
+  dynamic_color: ^1.7.0
+  url_launcher: ^6.3.0
+  webview_flutter: ^4.10.0
+  flutter_secure_storage: ^9.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  image_path: "assets/icon/icon_main.png"
+  adaptive_icon_background: "assets/icon/icon_bg.png"
+  adaptive_icon_foreground: "assets/icon/icon_fg.png"
+  web:
+    generate: true
+    image_path: "assets/icon/icon_main.png"
+    background_color: "#3553A2"
+    theme_color: "#3553A2"
+  windows:
+    generate: true
+    image_path: "assets/icon/icon_main.png"
+    icon_size: 48
+
+flutter:
+  uses-material-design: true
