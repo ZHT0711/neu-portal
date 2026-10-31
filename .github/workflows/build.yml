@@ -1,0 +1,104 @@
+# 每夜构建：push 到 main 自动编译 Android APK + iOS IPA，并发布到 Releases
+# （Releases 页 → nightly 标签 → 无需登录直接下载）
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.8"
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter test
+      - run: flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.8"
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter test
+
+      - name: Build iOS (unsigned)
+        run: flutter build ios --release --no-codesign
+
+      - name: Package IPA
+        run: |
+          mkdir -p build/ios/Payload
+          cp -R build/ios/Release-iphoneos/Runner.app build/ios/Payload/
+          cd build/ios
+          zip -qry dongda-yihaotong-unsigned.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipa
+          path: build/ios/dongda-yihaotong-unsigned.ipa
+
+  release:
+    needs: [android, ios]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Publish nightly release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out
+          cp dist/apk/app-release.apk out/dongda-yihaotong-nightly.apk
+          cp dist/ipa/dongda-yihaotong-unsigned.ipa out/dongda-yihaotong-nightly-unsigned.ipa
+          DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
+          SHA=${GITHUB_SHA::7}
+          cat > notes.md <<NOTES
+          ## 每夜构建（Nightly）
+
+          自动构建于 $DATE · commit \`$SHA\`
+
+          | 文件 | 用途 |
+          | --- | --- |
+          | dongda-yihaotong-nightly.apk | Android 直接安装 |
+          | dongda-yihaotong-nightly-unsigned.ipa | iOS 未签名，用 Sideloadly / AltStore / 爱思助手 + Apple ID 签名后安装 |
+
+          详细安装说明见 README。
+          NOTES
+          gh release delete nightly --yes --cleanup-tag || true
+          gh release create nightly \
+            --title "每夜构建 Nightly · $DATE" \
+            --notes-file notes.md \
+            out/dongda-yihaotong-nightly.apk \
+            out/dongda-yihaotong-nightly-unsigned.ipa
