@@ -99,7 +99,8 @@ jobs:
           | 文件 | 用途 |
           | --- | --- |
           | dongda-yihaotong-nightly.apk | Android 直接安装 |
-          | dongda-yihaotong-nightly-unsigned.ipa | iOS 未签名，用 Sideloadly / AltStore / 爱思助手 + Apple ID 签名后安装 |
+          | dongda-yihaotong-nightly-ios.zip | iOS：内含未签名 IPA（下载后解压，用 Sideloadly / AltStore / 爱思助手 + Apple ID 签名后安装） |
+          | SHA256SUMS.txt | 校验和（下载后核对完整性） |
 
           详细安装说明见 README。
           NOTES
