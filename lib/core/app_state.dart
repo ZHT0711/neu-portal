@@ -18,6 +18,13 @@ import 'theme.dart';
 
 enum SessionMode { live, demo }
 
+/// iOS 液态玻璃底栏引擎模式（两全其美：原生质感 vs GPU 零发热极速）
+enum LiquidTabBarMode {
+  native,       // 原生液态玻璃 (UIKit 原生底栏，真实 iOS 设备生效)
+  fluidCapsule, // 极速流体悬浮胶囊 (GPU Metal 硬件加速，带滑动流体光斑)
+  dockGlass,    // 全宽经典玻璃栏 (Cupertino 玻璃栏)
+}
+
 class AppState extends ChangeNotifier {
   PortalClient? _client;
 
@@ -70,11 +77,13 @@ class AppState extends ChangeNotifier {
   Color seedColor = NeuColors.seed;
   bool useDynamicColor = false;
   PlatformStylePreference platformStyle = PlatformStylePreference.auto;
+  LiquidTabBarMode liquidTabBarMode = LiquidTabBarMode.native;
 
   static const _kMode = 'ui.themeMode';
   static const _kSeed = 'ui.seed';
   static const _kDyn = 'ui.dynamic';
   static const _kPlatform = 'ui.platform';
+  static const _kGlassMode = 'ui.liquidTabBarMode';
   static const _kEvents = 'planner.events';
   static const _kSession = 'session.mode';
 
@@ -103,6 +112,12 @@ class AppState extends ChangeNotifier {
       } else if (q == 'android') {
         platformStyle = PlatformStylePreference.android;
       }
+    }
+    final glassModeIdx = p.getInt(_kGlassMode);
+    if (glassModeIdx != null &&
+        glassModeIdx >= 0 &&
+        glassModeIdx < LiquidTabBarMode.values.length) {
+      liquidTabBarMode = LiquidTabBarMode.values[glassModeIdx];
     }
     setPlatformPreference(platformStyle);
     _persistedLive = (p.getInt(_kSession) ?? 0) == 1;
@@ -133,6 +148,15 @@ class AppState extends ChangeNotifier {
     try {
       final p = await SharedPreferences.getInstance();
       await p.setInt(_kPlatform, style.index);
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  Future<void> setLiquidTabBarMode(LiquidTabBarMode mode) async {
+    liquidTabBarMode = mode;
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setInt(_kGlassMode, mode.index);
     } catch (_) {}
     notifyListeners();
   }
