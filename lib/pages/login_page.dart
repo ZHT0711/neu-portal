@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
-import '../core/platform_style.dart';
-import '../widgets/common.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/app_state.dart';
+import '../core/cas_crypto.dart';
+import '../core/platform_style.dart';
 import '../core/portal_client.dart';
+import '../widgets/common.dart';
 import 'shell.dart';
+import 'webview_page.dart';
 
 /// 统一身份认证登录页。
 class LoginPage extends StatefulWidget {
@@ -28,6 +30,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void initState() {
     super.initState();
+    _sid.addListener(() => setState(() {}));
     _loadRemembered();
   }
 
@@ -46,7 +49,8 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _submit() async {
     if (_loading) return;
-    if (_sid.text.trim().isEmpty || _pwd.text.isEmpty) {
+    final sid = _sid.text.trim();
+    if (sid.isEmpty || _pwd.text.isEmpty) {
       setState(() => _error = '请输入学号/工号和密码');
       return;
     }
@@ -57,16 +61,16 @@ class _LoginPageState extends State<LoginPage> {
     });
     final state = AppScope.of(context);
     try {
-      await state.login(_sid.text.trim(), _pwd.text);
+      await state.login(sid, _pwd.text);
       final p = await SharedPreferences.getInstance();
       if (_remember) {
-        await p.setString('cas.user', _sid.text.trim());
+        await p.setString('cas.user', sid);
       } else {
         await p.remove('cas.user');
       }
       // 保持登录：凭证进本机安全存储，之后各系统 SSO 免登录、重启自动续登
       if (_keepLogin) {
-        await state.saveCredentials(_sid.text.trim(), _pwd.text);
+        await state.saveCredentials(sid, _pwd.text);
       } else {
         await state.clearCredentials();
       }
@@ -76,7 +80,10 @@ class _LoginPageState extends State<LoginPage> {
     } on PortalException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
-      if (mounted) setState(() => _error = '暂时无法登录，请检查网络；校外请先连接 VPN。');
+      if (mounted) {
+        setState(() => _error =
+            '暂时无法连接门户服务。若当前处于 5G/4G 或校外网络，请连接校园 WebVPN 或切换至校园 WiFi。');
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -110,6 +117,9 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
+    final sidText = _sid.text.trim();
+    final looksLikePhone = RegExp(r'^1[3-9]\d{9,10}$').hasMatch(sidText);
+
     return Scaffold(
       appBar: const PageAppBar(title: '统一身份认证'),
       body: SafeArea(
@@ -150,8 +160,21 @@ class _LoginPageState extends State<LoginPage> {
                             _field(
                                 controller: _sid,
                                 label: '学号 / 工号',
+                                hint: '本科生/研究生学号或8位工号',
                                 autofillHints: const [AutofillHints.username],
                                 action: TextInputAction.next),
+                            if (looksLikePhone)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Text(
+                                  '⚠️ 统一身份认证账号为学号或8位工号，不支持手机号密码登录。手机号请点击下方“网页版认证”。',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: scheme.error,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
                             const SizedBox(height: 16),
                             _field(
                                 controller: _pwd,
@@ -179,15 +202,73 @@ class _LoginPageState extends State<LoginPage> {
                             : (value) => setState(() => _keepLogin = value),
                       ),
                       if (_error != null)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Semantics(
-                              liveRegion: true,
-                              child: Text(_error!,
-                                  style: text.bodyMedium
-                                      ?.copyWith(color: scheme.error))),
+                        Container(
+                          margin: const EdgeInsets.symmetric(vertical: 12),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: scheme.errorContainer.withValues(alpha: 0.6),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: scheme.error.withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.info_outline,
+                                  size: 18, color: scheme.error),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _error!,
+                                      style: text.bodySmall?.copyWith(
+                                        color: scheme.onErrorContainer,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    if (_error!.contains('WebVPN') ||
+                                        _error!.contains('VPN') ||
+                                        _error!.contains('5G')) ...[
+                                      const SizedBox(height: 8),
+                                      TextButton.icon(
+                                        style: TextButton.styleFrom(
+                                          padding: EdgeInsets.zero,
+                                          visualDensity:
+                                              VisualDensity.compact,
+                                          foregroundColor: scheme.error,
+                                        ),
+                                        onPressed: () {
+                                          Navigator.of(context).push(
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  const WebViewPage(
+                                                url:
+                                                    'https://webvpn.neu.edu.cn',
+                                                title: '东北大学 WebVPN',
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                        icon: const Icon(Icons.vpn_lock,
+                                            size: 16),
+                                        label: const Text(
+                                          '前往东北大学 WebVPN 认证',
+                                          style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                       AdaptiveFilledButton(
                         onPressed: _loading ? null : _submit,
                         child: _loading
@@ -206,6 +287,23 @@ class _LoginPageState extends State<LoginPage> {
                             : const Text('登录'),
                       ),
                       const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: _loading
+                            ? null
+                            : () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => const WebViewPage(
+                                      url: kNeuCasLoginUrl,
+                                      title: '统一身份认证',
+                                    ),
+                                  ),
+                                );
+                              },
+                        icon: const Icon(Icons.open_in_browser, size: 18),
+                        label: const Text('通过网页版登录（支持短信/扫码）'),
+                      ),
+                      const SizedBox(height: 10),
                       TextButton(
                         onPressed: _loading
                             ? null
@@ -216,7 +314,8 @@ class _LoginPageState extends State<LoginPage> {
                         child: const Text('先体验离线演示'),
                       ),
                       const SizedBox(height: 16),
-                      Text('未开启保持登录时，密码仅用于本次认证。',
+                      Text(
+                          '💡 提示：在校外或使用 5G/4G 蜂窝网络时，CAS 会限制公网直接鉴权；建议连接校园 WebVPN 或切换至校园 WiFi。\n教职工账号不足8位的请前置补0（如00007826）；秦皇岛分校前置加1补齐。',
                           textAlign: TextAlign.center,
                           style: text.bodySmall
                               ?.copyWith(color: scheme.onSurfaceVariant)),
@@ -232,6 +331,7 @@ class _LoginPageState extends State<LoginPage> {
   Widget _field(
       {required TextEditingController controller,
       required String label,
+      String? hint,
       required List<String> autofillHints,
       required TextInputAction action,
       bool password = false}) {
@@ -246,7 +346,24 @@ class _LoginPageState extends State<LoginPage> {
         : null;
     if (isApple) {
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: Theme.of(context).textTheme.bodyMedium),
+        Row(
+          children: [
+            Text(label, style: Theme.of(context).textTheme.bodyMedium),
+            if (hint != null) ...[
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  hint,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: CupertinoColors.secondaryLabel,
+                        fontSize: 12,
+                      ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ],
+        ),
         const SizedBox(height: 8),
         CupertinoTextField(
           controller: controller,
@@ -279,7 +396,11 @@ class _LoginPageState extends State<LoginPage> {
       textInputAction: action,
       autocorrect: false,
       enableSuggestions: false,
-      decoration: InputDecoration(labelText: label, suffixIcon: toggle),
+      decoration: InputDecoration(
+        labelText: label,
+        helperText: hint,
+        suffixIcon: toggle,
+      ),
       onSubmitted: (_) {
         if (password) _submit();
       },

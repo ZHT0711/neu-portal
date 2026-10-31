@@ -243,6 +243,11 @@ class PortalClient {
   /// CAS 统一身份认证登录。成功返回用户信息，失败抛 PortalException。
   Future<PortalUser> login(String username, String password) async {
     _cookies.clear();
+    final cleanUsername = username.replaceAll(RegExp(r'\s+'), '').trim();
+    final cleanPassword = password;
+    if (cleanUsername.isEmpty || cleanPassword.isEmpty) {
+      throw PortalException('学号/工号或密码不能为空');
+    }
     final loginUri = Uri.parse(kNeuCasLoginUrl);
 
     // 1. 取登录页，解析 lt / execution
@@ -258,9 +263,9 @@ class PortalClient {
 
     // 2. RSA 加密并提交
     final form = {
-      'rsa': CasCrypto.encrypt(username + password),
-      'ul': '${username.length}',
-      'pl': '${password.length}',
+      'rsa': CasCrypto.encrypt(cleanUsername + cleanPassword),
+      'ul': '${cleanUsername.length}',
+      'pl': '${cleanPassword.length}',
       'lt': lt,
       'execution': execution,
       '_eventId': 'submit',
@@ -287,6 +292,10 @@ class PortalClient {
       ).firstMatch(postHtml);
       final rawMsg = m?.group(1)?.replaceAll(RegExp(r'<[^>]+>'), '').trim();
       if (rawMsg != null && rawMsg.isNotEmpty && !rawMsg.contains('null')) {
+        if (rawMsg.contains('账号不存在')) {
+          throw PortalException(
+              '账号不存在：若当前使用 5G/4G 移动网络或在校外，学校统一认证会拦截公网直连鉴权（返回账号不存在）。请切换至校园网 WiFi，或先连接校园 WebVPN。');
+        }
         throw PortalException(rawMsg);
       }
       throw PortalException('账号或密码错误（如需二次短信验证，请先在网页端完成设备信任绑定）');
