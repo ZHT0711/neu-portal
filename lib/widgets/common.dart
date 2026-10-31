@@ -3,12 +3,13 @@ library;
 
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
+import '../core/ios_glass.dart';
 import '../core/links.dart';
-import '../core/theme.dart';
 import '../core/platform_style.dart';
-import 'package:flutter/cupertino.dart';
+import '../core/theme.dart';
 
 /// 页面分区标题。
 class SectionHeader extends StatelessWidget {
@@ -50,7 +51,7 @@ class SectionHeader extends StatelessWidget {
   }
 }
 
-/// 分组面板：自带 Material（墨水涟漪 / ListTile 正常工作），替代满屏卡片。
+/// 分组面板：自带 Material（墨水涟漪 / ListTile 正常工作），在 iOS 下呈现原生液态玻璃。
 class Panel extends StatelessWidget {
   const Panel({super.key, required this.child, this.padding, this.color});
 
@@ -61,15 +62,22 @@ class Panel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final panelColor = color ??
-        (isApple
-            ? IosColors.secondaryGroupedBackground(
-                scheme.brightness == Brightness.dark)
-            : scheme.surfaceContainerLow);
+    if (isApple) {
+      return IosGlassSurface(
+        radius: Ds.rMd,
+        child: Material(
+          color: color ?? Colors.transparent,
+          child: padding == null
+              ? child
+              : Padding(padding: padding!, child: child),
+        ),
+      );
+    }
+    final panelColor = color ?? scheme.surfaceContainerLow;
     return Material(
       color: panelColor,
       shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(isApple ? Ds.rMd : Ds.rLg)),
+          borderRadius: BorderRadius.circular(Ds.rLg)),
       clipBehavior: Clip.antiAlias,
       child: padding == null ? child : Padding(padding: padding!, child: child),
     );

@@ -48,13 +48,12 @@ class _ProfilePageState extends State<ProfilePage> {
           // 用户卡
           StaggerIn(
             index: 0,
-            child: Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: scheme.primaryContainer,
-                borderRadius: BorderRadius.circular(Ds.rXl),
-              ),
-              child: Row(
+            child: isApple
+                ? IosGlassSurface(
+                    radius: Ds.rXl,
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Row(
                 children: [
                   Container(
                     width: 60,
@@ -135,7 +134,95 @@ class _ProfilePageState extends State<ProfilePage> {
                 ],
               ),
             ),
+          )
+        : Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: scheme.primaryContainer,
+              borderRadius: BorderRadius.circular(Ds.rXl),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                    color: Colors.white.withValues(alpha: 0.18),
+                    border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.5),
+                        width: 1.6),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: u.avatarUrl.startsWith('http')
+                      ? Image.network(
+                          u.avatarUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => Center(
+                            child: Text(
+                              u.name.characters.first,
+                              style: TextStyle(
+                                fontSize: 23,
+                                fontWeight: FontWeight.w800,
+                                color: scheme.onPrimaryContainer,
+                              ),
+                            ),
+                          ),
+                        )
+                      : Center(
+                          child: Text(
+                            u.name.characters.first,
+                            style: TextStyle(
+                              fontSize: 23,
+                              fontWeight: FontWeight.w800,
+                              color: scheme.onPrimaryContainer,
+                            ),
+                          ),
+                        ),
+                ),
+                const SizedBox(width: 15),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        u.name,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(
+                                color: scheme.onPrimaryContainer,
+                                fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${u.sid} · ${u.identity} · ${u.department}',
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(
+                                color: scheme.onPrimaryContainer
+                                    .withValues(alpha: 0.85)),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        u.email,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context)
+                            .textTheme
+                            .labelSmall
+                            ?.copyWith(
+                                color: scheme.onPrimaryContainer
+                                    .withValues(alpha: 0.7)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
+      ),
           if (s.mode == SessionMode.demo) ...[
             const SizedBox(height: 12),
             StaggerIn(
@@ -309,15 +396,28 @@ class _ProfilePageState extends State<ProfilePage> {
 
           const SizedBox(height: 24),
           Center(
-            child: Text(
-              '东大一号通 v1.2.0\n'
-              '${isApple ? 'iOS 设计' : 'Material 3'} · ${demoNews.length} 条真实资讯快照',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 11,
-                height: 1.7,
-                color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
-              ),
+            child: Column(
+              children: [
+                ClipOval(
+                  child: Image.asset(
+                    'assets/icon/neu_crest.png',
+                    width: 36,
+                    height: 36,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '东大一号通 v1.2.0\n'
+                  '${isApple ? 'iOS 设计' : 'Material 3'} · ${demoNews.length} 条真实资讯快照',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 11,
+                    height: 1.7,
+                    color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

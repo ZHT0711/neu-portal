@@ -120,10 +120,10 @@ class _GpaHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Container(
+    final content = Container(
       padding: const EdgeInsets.fromLTRB(18, 22, 18, 18),
       decoration: BoxDecoration(
-        color: scheme.primaryContainer,
+        color: isApple ? Colors.transparent : scheme.primaryContainer,
         borderRadius: BorderRadius.circular(Ds.rXl),
       ),
       child: Row(
@@ -136,6 +136,14 @@ class _GpaHero extends StatelessWidget {
         ],
       ),
     );
+
+    if (isApple) {
+      return IosGlassSurface(
+        radius: Ds.rXl,
+        child: content,
+      );
+    }
+    return content;
   }
 
   Widget _stat(BuildContext context, String label, String value) {
@@ -187,11 +195,9 @@ class _GradeRow extends StatelessWidget {
         name: course.name,
         room: '',
         kind: course.score != null && course.score! < 60 ? 'exam' : 'course'));
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 13, 14, 13),
-        child: Row(
+    final cardContent = Padding(
+      padding: const EdgeInsets.fromLTRB(16, 13, 14, 13),
+      child: Row(
           children: [
             Expanded(
               child: Column(
@@ -263,7 +269,21 @@ class _GradeRow extends StatelessWidget {
             ),
           ],
         ),
-      ),
+      );
+
+    if (isApple) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: IosGlassSurface(
+          radius: Ds.rMd,
+          child: cardContent,
+        ),
+      );
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: cardContent,
     );
   }
 }

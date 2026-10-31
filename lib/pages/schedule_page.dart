@@ -690,25 +690,35 @@ class _Grid extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final contentH = _rowH * 5;
 
-    Widget grid = Card(
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _PeriodColumn(),
-          for (var d = 0; d < 7; d++)
-            _DayColumn(
-              weekday: d + 1,
-              date: weekStart.add(Duration(days: (d + 1) % 7)),
-              occurrences: days[d],
-              isToday: isCurrentWeek &&
-                  _sameDay(weekStart.add(Duration(days: (d + 1) % 7)), today),
-              flex: d >= 5 ? 62 : 100,
-              onEventTap: onEventTap,
-            ),
-        ],
-      ),
+    final gridContent = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _PeriodColumn(),
+        for (var d = 0; d < 7; d++)
+          _DayColumn(
+            weekday: d + 1,
+            date: weekStart.add(Duration(days: (d + 1) % 7)),
+            occurrences: days[d],
+            isToday: isCurrentWeek &&
+                _sameDay(weekStart.add(Duration(days: (d + 1) % 7)), today),
+            flex: d >= 5 ? 62 : 100,
+            onEventTap: onEventTap,
+          ),
+      ],
     );
+
+    Widget grid = isApple
+        ? Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: IosGlassSurface(
+              radius: Ds.rLg,
+              child: gridContent,
+            ),
+          )
+        : Card(
+            margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: gridContent,
+          );
 
     if (isCurrentWeek) {
       final cur = today.hour * 60 + today.minute;

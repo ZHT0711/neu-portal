@@ -59,19 +59,25 @@ class IosGlassSurface extends StatelessWidget {
     super.key,
     required this.child,
     this.radius = 24,
+    this.borderRadius,
     this.border,
   });
 
   final Widget child;
   final double radius;
+  final BorderRadiusGeometry? borderRadius;
   final BoxBorder? border;
 
   @override
   Widget build(BuildContext context) {
+    final effectiveRadius =
+        borderRadius ?? (radius > 0 ? BorderRadius.circular(radius) : null);
+    final hasRadius =
+        effectiveRadius != null && effectiveRadius != BorderRadius.zero;
     final caps = IosGlassScope.of(context);
     if (caps.osMajorVersion >= 13 && !kIsWeb) {
       return LiquidGlassContainer(
-        shape: radius == 0
+        shape: !hasRadius
             ? const LiquidGlassShape.roundedRectangle(0)
             : LiquidGlassShape.roundedRectangle(radius),
         child: child,
@@ -83,7 +89,7 @@ class IosGlassSurface extends StatelessWidget {
     final background =
         CupertinoColors.secondarySystemGroupedBackground.resolveFrom(context);
     final resolvedBorder = border ??
-        (radius > 0
+        (hasRadius
             ? Border.all(
                 color: Colors.white.withValues(alpha: dark ? 0.18 : 0.65),
                 width: 0.7)
@@ -91,7 +97,7 @@ class IosGlassSurface extends StatelessWidget {
     Widget surface = DecoratedBox(
       decoration: BoxDecoration(
         color: background.withValues(alpha: opaque ? 1 : (dark ? 0.80 : 0.72)),
-        borderRadius: radius > 0 ? BorderRadius.circular(radius) : null,
+        borderRadius: effectiveRadius,
         border: resolvedBorder,
       ),
       child: child,
@@ -100,9 +106,9 @@ class IosGlassSurface extends StatelessWidget {
       surface = BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24), child: surface);
     }
-    return radius > 0
+    return hasRadius
         ? ClipRRect(
-            borderRadius: BorderRadius.circular(radius), child: surface)
+            borderRadius: effectiveRadius, child: surface)
         : ClipRect(child: surface);
   }
 }

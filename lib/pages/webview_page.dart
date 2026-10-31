@@ -1,4 +1,4 @@
-﻿/// Embedded business browser: preserve HTTP entries and the actual WebKit identity.
+/// Embedded business browser: preserve HTTP entries and the actual WebKit identity.
 library;
 
 import 'dart:async';
@@ -12,7 +12,9 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../core/app_state.dart';
 import '../core/cas_crypto.dart';
+import '../core/ios_glass.dart';
 import '../core/platform_style.dart';
+import '../core/theme.dart';
 import '../core/web_policy.dart';
 import 'login_page.dart';
 
@@ -34,6 +36,7 @@ class _WebViewPageState extends State<WebViewPage> {
   int _casAttempts = 0;
   bool _desktop = false;
   bool _canGoBack = false;
+  bool _canGoForward = false;
   final _httpRetriedOrigins = <String>{};
 
   @override
@@ -137,10 +140,15 @@ class _WebViewPageState extends State<WebViewPage> {
     try {
       _rememberUrl(await _controller.currentUrl());
       final back = await _controller.canGoBack();
+      bool forward = false;
+      try {
+        forward = await _controller.canGoForward();
+      } catch (_) {}
       final title = await _controller.getTitle();
       mountedSet(() {
         _progress = 1;
         _canGoBack = back;
+        _canGoForward = forward;
         if (title != null && title.trim().isNotEmpty) _pageTitle = title;
       });
     } catch (_) {
@@ -261,6 +269,32 @@ class _WebViewPageState extends State<WebViewPage> {
     if (mounted) Navigator.of(context).pop();
   }
 
+  Future<void> _goForward() async {
+    try {
+      if (await _controller.canGoForward()) {
+        await _controller.goForward();
+      }
+    } catch (_) {
+      /* No live web history remains. */
+    }
+  }
+
+  Future<void> _goToLogin() async {
+    final state = AppScope.of(context);
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const LoginPage(),
+      ),
+    );
+    if (mounted && state.mode == SessionMode.live) {
+      mountedSet(() {
+        _needLogin = false;
+        _casAttempts = 0;
+      });
+      await _injectCookiesThenLoad();
+    }
+  }
+
   Future<void> _toggleDesktop() async {
     HapticFeedback.selectionClick();
     mountedSet(() => _desktop = !_desktop);
@@ -339,49 +373,11 @@ class _WebViewPageState extends State<WebViewPage> {
             ),
           ],
         ),
+        bottomNavigationBar: _buildLiquidBottomBar(context),
         body: Column(
           children: [
-            if (_needLogin)
-              Material(
-                color: scheme.tertiaryContainer,
-                child: ListTile(
-                  title: const Text('统一认证会话已失效'),
-                  trailing: TextButton(
-                    child: const Text('去登录'),
-                    onPressed: () async {
-                      final state = AppScope.of(context);
-                      await Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const LoginPage(),
-                        ),
-                      );
-                      if (mounted && state.mode == SessionMode.live) {
-                        mountedSet(() {
-                          _needLogin = false;
-                          _casAttempts = 0;
-                        });
-                        await _injectCookiesThenLoad();
-                      }
-                    },
-                  ),
-                ),
-              ),
-            if (_currentUri.scheme == 'http')
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 6,
-                ),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'HTTP · ${_currentUri.host}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ),
+            _buildAddressBar(context),
+            if (_needLogin) _buildSessionExpiredBanner(context),
             if (_error == null && _progress < 1)
               LinearProgressIndicator(
                 value: _progress == 0 ? null : _progress,
@@ -413,6 +409,315 @@ class _WebViewPageState extends State<WebViewPage> {
       ),
     );
   }
+
+  Widget _buildAddressBar(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final isHttps = _currentUri.scheme == 'https';
+    final hostText =
+        _currentUri.host.isEmpty ? 'about:blank' : _currentUri.host;
+
+    final capsule = Container(
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: isApple
+            ? (dark
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.black.withValues(alpha: 0.05))
+            : scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isApple
+              ? Colors.white.withValues(alpha: dark ? 0.12 : 0.4)
+              : scheme.outlineVariant.withValues(alpha: 0.5),
+          width: 0.6,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isHttps
+                ? (isApple ? CupertinoIcons.lock_fill : Icons.lock)
+                : (isApple
+                    ? CupertinoIcons.exclamationmark_shield
+                    : Icons.security_update_warning),
+            size: 13,
+            color: isHttps
+                ? (isApple
+                    ? CupertinoColors.secondaryLabel.resolveFrom(context)
+                    : scheme.onSurfaceVariant)
+                : scheme.error,
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              isHttps ? hostText : 'HTTP · $hostText',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: isHttps ? scheme.onSurface : scheme.error,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+      alignment: Alignment.center,
+      child: capsule,
+    );
+  }
+
+  Widget _buildSessionExpiredBanner(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: isApple
+          ? IosGlassSurface(
+              radius: 14,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Row(
+                  children: [
+                    Icon(
+                      CupertinoIcons.exclamationmark_triangle_fill,
+                      size: 20,
+                      color: CupertinoColors.systemOrange.resolveFrom(context),
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        '统一认证会话已失效',
+                        style: TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    CupertinoButton(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 6),
+                      color: scheme.primary,
+                      borderRadius: BorderRadius.circular(16),
+                      onPressed: _goToLogin,
+                      child: const Text(
+                        '去登录',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : Material(
+              color: scheme.tertiaryContainer,
+              borderRadius: BorderRadius.circular(12),
+              child: ListTile(
+                title: const Text('统一认证会话已失效'),
+                trailing: TextButton(
+                  onPressed: _goToLogin,
+                  child: const Text('去登录'),
+                ),
+              ),
+            ),
+    );
+  }
+
+  Widget _buildLiquidBottomBar(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final iconColor =
+        isApple ? CupertinoColors.label.resolveFrom(context) : scheme.onSurface;
+    final disabledColor = isApple
+        ? CupertinoColors.tertiaryLabel.resolveFrom(context)
+        : scheme.onSurface.withValues(alpha: 0.35);
+
+    final toolbar = Container(
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          IconButton(
+            tooltip: '后退',
+            icon: Icon(
+              isApple ? CupertinoIcons.chevron_left : Icons.arrow_back_ios_new,
+              size: 20,
+            ),
+            color: _canGoBack ? iconColor : disabledColor,
+            onPressed: _canGoBack ? smartBack : null,
+          ),
+          IconButton(
+            tooltip: '前进',
+            icon: Icon(
+              isApple ? CupertinoIcons.chevron_right : Icons.arrow_forward_ios,
+              size: 20,
+            ),
+            color: _canGoForward ? iconColor : disabledColor,
+            onPressed: _canGoForward ? _goForward : null,
+          ),
+          IconButton(
+            tooltip: '重新加载',
+            icon: Icon(
+              isApple ? CupertinoIcons.arrow_clockwise : Icons.refresh,
+              size: 21,
+            ),
+            color: iconColor,
+            onPressed: () => _load(_currentUri),
+          ),
+          IconButton(
+            tooltip: _desktop ? '切换手机版' : '切换桌面版',
+            icon: Icon(
+              _desktop
+                  ? (isApple
+                      ? CupertinoIcons.device_phone_portrait
+                      : Icons.smartphone)
+                  : (isApple
+                      ? CupertinoIcons.device_laptop
+                      : Icons.desktop_windows_outlined),
+              size: 21,
+            ),
+            color: _desktop ? scheme.primary : iconColor,
+            onPressed: _toggleDesktop,
+          ),
+          IconButton(
+            tooltip: '更多选项',
+            icon: Icon(
+              isApple ? CupertinoIcons.ellipsis : Icons.more_horiz,
+              size: 22,
+            ),
+            color: iconColor,
+            onPressed: () => _showSafariOptions(context),
+          ),
+        ],
+      ),
+    );
+
+    if (isApple) {
+      return IosGlassSurface(
+        radius: 0,
+        border: Border(
+          top: BorderSide(
+            color: IosColors.separator(dark).withValues(alpha: 0.35),
+            width: 0.5,
+          ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: toolbar,
+        ),
+      );
+    }
+
+    return Material(
+      color: scheme.surfaceContainer,
+      child: SafeArea(
+        top: false,
+        child: toolbar,
+      ),
+    );
+  }
+
+  void _showSafariOptions(BuildContext context) {
+    final alternative = PortalWebPolicy.httpAlternative(_currentUri);
+    if (isApple) {
+      showCupertinoModalPopup<void>(
+        context: context,
+        builder: (ctx) => CupertinoActionSheet(
+          title: Text(_currentUri.toString()),
+          actions: [
+            CupertinoActionSheetAction(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                _menuAction('refresh');
+              },
+              child: const Text('重新加载'),
+            ),
+            CupertinoActionSheetAction(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                _menuAction('copy');
+              },
+              child: const Text('复制当前链接'),
+            ),
+            CupertinoActionSheetAction(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                _menuAction('browser');
+              },
+              child: const Text('用系统浏览器打开'),
+            ),
+            if (alternative != null)
+              CupertinoActionSheetAction(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  _menuAction('http');
+                },
+                child: const Text('使用 HTTP 打开（校内旧系统）'),
+              ),
+          ],
+          cancelButton: CupertinoActionSheetAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+        ),
+      );
+    } else {
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (ctx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.refresh),
+                title: const Text('重新加载'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _menuAction('refresh');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.copy),
+                title: const Text('复制当前链接'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _menuAction('copy');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.open_in_browser),
+                title: const Text('用系统浏览器打开'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _menuAction('browser');
+                },
+              ),
+              if (alternative != null)
+                ListTile(
+                  leading: const Icon(Icons.http),
+                  title: const Text('使用 HTTP 打开（校内旧系统）'),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _menuAction('http');
+                  },
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+  }
 }
 
 class _ErrorView extends StatelessWidget {
@@ -426,30 +731,58 @@ class _ErrorView extends StatelessWidget {
   final VoidCallback onRetry;
   final VoidCallback onBrowser;
   final VoidCallback? onHttp;
+
   @override
-  Widget build(BuildContext context) => Center(
-    child: SingleChildScrollView(
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final cardContent = Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.cloud_off,
-            size: 44,
-            color: Theme.of(context).colorScheme.outline,
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: scheme.error.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              isApple ? CupertinoIcons.wifi_exclamationmark : Icons.cloud_off,
+              size: 40,
+              color: scheme.error,
+            ),
           ),
           const SizedBox(height: 16),
-          Text(message, textAlign: TextAlign.center),
-          const SizedBox(height: 16),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 14, height: 1.4),
+          ),
+          const SizedBox(height: 20),
           AdaptiveFilledButton(onPressed: onRetry, child: const Text('重试')),
-          if (onHttp != null)
+          if (onHttp != null) ...[
+            const SizedBox(height: 8),
             TextButton(
               onPressed: onHttp,
               child: const Text('使用 HTTP 打开（校内旧系统）'),
             ),
+          ],
+          const SizedBox(height: 4),
           TextButton(onPressed: onBrowser, child: const Text('改用系统浏览器打开')),
         ],
       ),
-    ),
-  );
+    );
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: isApple
+            ? IosGlassSurface(
+                radius: Ds.rLg,
+                child: cardContent,
+              )
+            : Card(child: cardContent),
+      ),
+    );
+  }
 }

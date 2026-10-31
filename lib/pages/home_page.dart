@@ -68,7 +68,21 @@ class _HomePageState extends State<HomePage> {
                   width: 0.5,
                 ),
               ),
-              largeTitle: const Text('首页'),
+              largeTitle: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ClipOval(
+                    child: Image.asset(
+                      'assets/icon/neu_crest.png',
+                      width: 28,
+                      height: 28,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text('首页'),
+                ],
+              ),
               transitionBetweenRoutes: false,
             ),
           SliverToBoxAdapter(
@@ -189,115 +203,176 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final foreground = isApple ? scheme.onSurface : scheme.onPrimary;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: isApple ? scheme.surfaceContainerLow : scheme.primary,
-        borderRadius:
-            const BorderRadius.vertical(bottom: Radius.circular(Ds.rXl)),
-      ),
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 34),
-          child: Row(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(17),
-                  border: Border.all(
-                      color: foreground.withValues(alpha: 0.55), width: 1.6),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(15.5),
-                  child: Image.network(
-                    avatarUrl,
+
+    final headerContent = SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, 26),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                ClipOval(
+                  child: Image.asset(
+                    'assets/icon/neu_crest.png',
+                    width: 22,
+                    height: 22,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => Container(
-                      color: foreground.withValues(alpha: 0.18),
-                      alignment: Alignment.center,
-                      child: Text(
-                        name.isNotEmpty ? name.characters.first : '同',
-                        style: TextStyle(
-                          color: foreground,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '东北大学 · 一号通',
+                  style: TextStyle(
+                    color: foreground.withValues(alpha: 0.88),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(17),
+                    border: Border.all(
+                        color: foreground.withValues(alpha: 0.55), width: 1.6),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(15.5),
+                    child: Image.network(
+                      avatarUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => Container(
+                        color: foreground.withValues(alpha: 0.18),
+                        alignment: Alignment.center,
+                        child: Text(
+                          name.isNotEmpty ? name.characters.first : '同',
+                          style: TextStyle(
+                            color: foreground,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 13),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '$greeting，$name',
-                      style: TextStyle(
-                        color: foreground,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.2,
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$greeting，$name',
+                        style: TextStyle(
+                          color: foreground,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.2,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      '$sid · 未来技术学院',
-                      style: TextStyle(
-                        color: foreground.withValues(alpha: 0.82),
-                        fontSize: 12.5,
+                      const SizedBox(height: 3),
+                      Text(
+                        '$sid · 未来技术学院',
+                        style: TextStyle(
+                          color: foreground.withValues(alpha: 0.82),
+                          fontSize: 12.5,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 7),
-                    Wrap(spacing: 8, runSpacing: 6, children: [
-                      Text(dateText,
-                          style: TextStyle(
-                              color: foreground.withValues(alpha: 0.85),
-                              fontSize: 12)),
-                      if (isDemo)
-                        Text('离线演示',
+                      const SizedBox(height: 7),
+                      Wrap(spacing: 8, runSpacing: 6, children: [
+                        Text(dateText,
                             style: TextStyle(
                                 color: foreground.withValues(alpha: 0.85),
                                 fontSize: 12)),
-                    ]),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              GestureDetector(
-                onTap: () {
-                  HapticFeedback.lightImpact();
-                  AppLinks.open(context, ecodeUrl, title: 'e码通');
-                },
-                child: Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: foreground.withValues(alpha: 0.16),
-                    borderRadius: BorderRadius.circular(17),
-                    border:
-                        Border.all(color: foreground.withValues(alpha: 0.4)),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.qr_code_2, color: foreground, size: 27),
-                      const SizedBox(height: 1),
-                      Text('e码通',
-                          style: TextStyle(color: foreground, fontSize: 8.5)),
+                        if (isDemo)
+                          Text('离线演示',
+                              style: TextStyle(
+                                  color: foreground.withValues(alpha: 0.85),
+                                  fontSize: 12)),
+                      ]),
                     ],
                   ),
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(width: 10),
+                GestureDetector(
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    AppLinks.open(context, ecodeUrl, title: 'e码通');
+                  },
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: isApple
+                          ? scheme.primary.withValues(alpha: 0.1)
+                          : foreground.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(17),
+                      border: Border.all(
+                        color: isApple
+                            ? scheme.primary.withValues(alpha: 0.25)
+                            : foreground.withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.qr_code_2,
+                          color: isApple ? scheme.primary : foreground,
+                          size: 27,
+                        ),
+                        const SizedBox(height: 1),
+                        Text(
+                          'e码通',
+                          style: TextStyle(
+                            color: isApple ? scheme.primary : foreground,
+                            fontSize: 8.5,
+                            fontWeight: isApple ? FontWeight.w600 : FontWeight.normal,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
+    );
+
+    if (isApple) {
+      return IosGlassSurface(
+        borderRadius:
+            const BorderRadius.vertical(bottom: Radius.circular(Ds.rXl)),
+        border: Border(
+          bottom: BorderSide(
+            color: IosColors.separator(dark).withValues(alpha: 0.35),
+            width: 0.5,
+          ),
+        ),
+        child: headerContent,
+      );
+    }
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.primary,
+        borderRadius:
+            const BorderRadius.vertical(bottom: Radius.circular(Ds.rXl)),
+      ),
+      child: headerContent,
     );
   }
 }
@@ -312,37 +387,50 @@ class _SearchCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final dark = scheme.brightness == Brightness.dark;
+
+    final content = InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Icon(Icons.search, size: 20, color: scheme.primary),
+            const SizedBox(width: 10),
+            Text('搜索应用与服务…',
+                style:
+                    TextStyle(color: scheme.onSurfaceVariant, fontSize: 14)),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: scheme.primaryContainer,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.arrow_forward,
+                  size: 13, color: scheme.onPrimaryContainer),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (isApple) {
+      return IosGlassSurface(
+        radius: 20,
+        child: Material(
+          color: Colors.transparent,
+          child: content,
+        ),
+      );
+    }
+
     return Material(
       color: dark ? scheme.surfaceContainerLow : Colors.white,
       borderRadius: BorderRadius.circular(20),
       elevation: dark ? 0 : 2,
       shadowColor: scheme.primary.withValues(alpha: 0.12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            children: [
-              Icon(Icons.search, size: 20, color: scheme.primary),
-              const SizedBox(width: 10),
-              Text('搜索应用与服务…',
-                  style:
-                      TextStyle(color: scheme.onSurfaceVariant, fontSize: 14)),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.all(5),
-                decoration: BoxDecoration(
-                  color: scheme.primaryContainer,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.arrow_forward,
-                    size: 13, color: scheme.onPrimaryContainer),
-              ),
-            ],
-          ),
-        ),
-      ),
+      child: content,
     );
   }
 }
@@ -365,65 +453,73 @@ class _NextCourseBanner extends StatelessWidget {
         : occ.slot.kind == 'custom'
             ? '接下来的日程'
             : (ongoing ? '正在上课' : '下一节课');
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    tone.withValues(alpha: 0.2),
-                    tone.withValues(alpha: 0.08)
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(13),
-              ),
-              child: Icon(
-                occ.slot.kind == 'exam'
-                    ? Icons.fact_check
-                    : occ.slot.kind == 'custom'
-                        ? Icons.push_pin
-                        : (ongoing ? Icons.play_circle : Icons.upcoming),
-                color: tone,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    kindLabel,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: tone,
-                    ),
-                  ),
-                  Text(
-                    '${occ.slot.name} · ${occ.slot.room}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
+
+    final content = Padding(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  tone.withValues(alpha: 0.2),
+                  tone.withValues(alpha: 0.08)
                 ],
               ),
+              borderRadius: BorderRadius.circular(13),
             ),
-            Text(
-              occ.slot.timeText,
-              style: TextStyle(
-                fontSize: 12,
-                color: scheme.onSurfaceVariant,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
+            child: Icon(
+              occ.slot.kind == 'exam'
+                  ? Icons.fact_check
+                  : occ.slot.kind == 'custom'
+                      ? Icons.push_pin
+                      : (ongoing ? Icons.play_circle : Icons.upcoming),
+              color: tone,
             ),
-          ],
-        ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  kindLabel,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: tone,
+                  ),
+                ),
+                Text(
+                  '${occ.slot.name} · ${occ.slot.room}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            occ.slot.timeText,
+            style: TextStyle(
+              fontSize: 12,
+              color: scheme.onSurfaceVariant,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
       ),
     );
+
+    if (isApple) {
+      return IosGlassSurface(
+        radius: Ds.rMd,
+        child: content,
+      );
+    }
+
+    return Card(child: content);
   }
 }
 
@@ -775,9 +871,11 @@ class _TodoRail extends StatelessWidget {
               NeuColors.adaptiveTone(context, NeuColors.avatarColor(t.title));
           final done = t.percent >= 100;
           return Panel(
-            color: Theme.of(context).colorScheme.brightness == Brightness.light
-                ? Colors.white
-                : Theme.of(context).colorScheme.surfaceContainerLow,
+            color: isApple
+                ? null
+                : (Theme.of(context).colorScheme.brightness == Brightness.light
+                    ? Colors.white
+                    : Theme.of(context).colorScheme.surfaceContainerLow),
             padding: EdgeInsets.zero,
             child: InkWell(
               onTap: t.url.isEmpty

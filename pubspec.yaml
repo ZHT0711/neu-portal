@@ -29,7 +29,15 @@ dev_dependencies:
   webview_flutter_platform_interface: ^2.15.1
 
 flutter_launcher_icons:
+  android: true
+  ios: true
   image_path: "assets/icon/icon_main.png"
+  image_path_ios: "assets/icon/icon_main.png"
+  remove_alpha_ios: true
+  background_color_ios: "#3553A2"
+  image_path_ios_dark_transparent: "assets/icon/icon_dark.png"
+  image_path_ios_tinted_grayscale: "assets/icon/icon_tinted.png"
+  desaturate_tinted_to_grayscale_ios: true
   adaptive_icon_background: "assets/icon/icon_bg.png"
   adaptive_icon_foreground: "assets/icon/icon_fg.png"
   web:
@@ -44,3 +52,5 @@ flutter_launcher_icons:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icon/

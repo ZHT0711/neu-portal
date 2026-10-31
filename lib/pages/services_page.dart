@@ -7,6 +7,7 @@ import '../core/ios_glass.dart';
 import '../core/links.dart';
 import '../core/tab_scroller.dart';
 import '../core/models.dart';
+import '../core/theme.dart';
 import '../widgets/common.dart';
 
 /// 服务大厅：智慧搜索（热词 + 本地过滤 + 智搜平台）+ 全部应用 + 专题服务。
@@ -354,41 +355,51 @@ class _SmartSearchCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Card(
-      child: ListTile(
-        leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [
-              scheme.primary,
-              Color.lerp(scheme.primary, scheme.tertiary, 0.5)!,
-            ]),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Icon(Icons.travel_explore, color: Colors.white),
+    final tile = ListTile(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: [
+            scheme.primary,
+            Color.lerp(scheme.primary, scheme.tertiary, 0.5)!,
+          ]),
+          borderRadius: BorderRadius.circular(12),
         ),
-        title: RichText(
-          text: TextSpan(
-            style: DefaultTextStyle.of(context).style,
-            children: [
-              const TextSpan(text: '在智慧搜索中查 '),
-              TextSpan(
-                  text: '「$keyword」',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w800, color: scheme.primary)),
-            ],
-          ),
-        ),
-        subtitle:
-            const Text('全校系统 · 通知 · 服务一键直达', style: TextStyle(fontSize: 11.5)),
-        trailing: const Icon(Icons.chevron_right),
-        onTap: () => AppLinks.open(
-          context,
-          'https://so.neu.edu.cn/#/accessLogin?searchWord=${Uri.encodeComponent(keyword)}',
-          title: '智慧搜索',
+        child: const Icon(Icons.travel_explore, color: Colors.white),
+      ),
+      title: RichText(
+        text: TextSpan(
+          style: DefaultTextStyle.of(context).style,
+          children: [
+            const TextSpan(text: '在智慧搜索中查 '),
+            TextSpan(
+                text: '「$keyword」',
+                style: TextStyle(
+                    fontWeight: FontWeight.w800, color: scheme.primary)),
+          ],
         ),
       ),
+      subtitle:
+          const Text('全校系统 · 通知 · 服务一键直达', style: TextStyle(fontSize: 11.5)),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => AppLinks.open(
+        context,
+        'https://so.neu.edu.cn/#/accessLogin?searchWord=${Uri.encodeComponent(keyword)}',
+        title: '智慧搜索',
+      ),
     );
+
+    if (isApple) {
+      return IosGlassSurface(
+        radius: Ds.rMd,
+        child: Material(
+          color: Colors.transparent,
+          child: tile,
+        ),
+      );
+    }
+
+    return Card(child: tile);
   }
 }
 
