@@ -164,15 +164,19 @@ class _WebViewPageState extends State<WebViewPage> {
     if (mounted) setState(fn);
   }
 
-  /// 返回策略：优先退站点历史，站点首页才退出页面。
+  /// 返回策略：优先退站点历史；若历史回退后 URL 没变（SPA 标签页等），
+  /// 视为无有效历史，直接退出页面。
   Future<void> smartBack() async {
     try {
+      final cur = await _controller.currentUrl() ?? '';
       if (await _controller.canGoBack()) {
         await _controller.goBack();
-        return;
+        final after = await _controller.currentUrl() ?? '';
+        if (after != cur) return; // 确实回退到了上一个页面
       }
     } catch (_) {}
-    if (mounted) Navigator.of(context).maybePop();
+    // PopScope(canPop:false) 会拦截 maybePop，必须用 pop() 强制退出
+    if (mounted) Navigator.of(context).pop();
   }
 
   Future<void> _toggleDesktop() async {
