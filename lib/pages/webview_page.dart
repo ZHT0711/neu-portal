@@ -29,7 +29,9 @@ class WebViewPage extends StatefulWidget {
 class _WebViewPageState extends State<WebViewPage> {
   late final WebViewController _controller;
   late Uri _currentUri;
-  double _progress = 0;
+  final _progressNotifier = ValueNotifier<double>(0.0);
+  bool _viewReady = false;
+  Animation<double>? _routeAnimation;
   String? _error;
   String _pageTitle = '';
   bool _needLogin = false;
@@ -53,10 +55,47 @@ class _WebViewPageState extends State<WebViewPage> {
     _configureAndLoad();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    final anim = route?.animation;
+    if (anim != null) {
+      if (anim.isCompleted) {
+        _viewReady = true;
+      } else {
+        _routeAnimation = anim;
+        anim.addStatusListener(_onRouteAnimationStatus);
+      }
+    } else {
+      _viewReady = true;
+    }
+  }
+
+  void _onRouteAnimationStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed) {
+      _routeAnimation?.removeStatusListener(_onRouteAnimationStatus);
+      _routeAnimation = null;
+      if (mounted && !_viewReady) {
+        setState(() => _viewReady = true);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _routeAnimation?.removeStatusListener(_onRouteAnimationStatus);
+    _progressNotifier.dispose();
+    super.dispose();
+  }
+
   Future<void> _configureAndLoad() async {
     try {
       await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
-      await _controller.setBackgroundColor(const Color(0x00000000));
+      final dark = mounted && Theme.of(context).brightness == Brightness.dark;
+      await _controller.setBackgroundColor(
+        dark ? const Color(0xFF1C1C1E) : const Color(0xFFFFFFFF),
+      );
       await _controller.setUserAgent(
         PortalWebPolicy.userAgent(ios: isApple, desktop: _desktop),
       );
@@ -70,13 +109,14 @@ class _WebViewPageState extends State<WebViewPage> {
           onUrlChange: (change) => _rememberUrl(change.url),
           onPageStarted: (url) {
             _rememberUrl(url);
-            mountedSet(() {
-              _error = null;
-              _progress = 0;
-            });
+            _progressNotifier.value = 0.05;
+            if (_error != null) mountedSet(() => _error = null);
           },
-          onProgress: (value) => mountedSet(() => _progress = value / 100),
-          onPageFinished: (_) => _onPageSettled(),
+          onProgress: (value) => _progressNotifier.value = value / 100.0,
+          onPageFinished: (_) {
+            _progressNotifier.value = 1.0;
+            _onPageSettled();
+          },
           onWebResourceError: (error) {
             // WebKit emits cancellation while redirecting / opening a new target.
             if (!mounted ||
@@ -146,7 +186,6 @@ class _WebViewPageState extends State<WebViewPage> {
       } catch (_) {}
       final title = await _controller.getTitle();
       mountedSet(() {
-        _progress = 1;
         _canGoBack = back;
         _canGoForward = forward;
         if (title != null && title.trim().isNotEmpty) _pageTitle = title;
@@ -220,17 +259,23 @@ class _WebViewPageState extends State<WebViewPage> {
       final state = AppScope.of(context);
       if (state.mode == SessionMode.live) {
         final manager = WebViewCookieManager();
+        final futures = <Future<void>>[];
         for (final entry in state.cookieSnapshot().entries) {
           for (final cookie in entry.value.entries) {
-            await manager.setCookie(
-              WebViewCookie(
-                name: cookie.key,
-                value: cookie.value,
-                domain: entry.key,
-                path: '/',
+            futures.add(
+              manager.setCookie(
+                WebViewCookie(
+                  name: cookie.key,
+                  value: cookie.value,
+                  domain: entry.key,
+                  path: '/',
+                ),
               ),
             );
           }
+        }
+        if (futures.isNotEmpty) {
+          await Future.wait(futures);
         }
       }
     } catch (_) {
@@ -246,10 +291,10 @@ class _WebViewPageState extends State<WebViewPage> {
   Future<void> _load(Uri uri, {bool resetHttpRetry = true}) async {
     if (!PortalWebPolicy.isWebUrl(uri)) return;
     if (resetHttpRetry) _httpRetriedOrigins.clear();
+    _progressNotifier.value = 0.05;
     mountedSet(() {
       _currentUri = uri;
       _error = null;
-      _progress = 0;
       _casAttempts = 0;
     });
     try {
@@ -431,12 +476,14 @@ class _WebViewPageState extends State<WebViewPage> {
           children: [
             _buildAddressBar(context),
             if (_needLogin) _buildSessionExpiredBanner(context),
-            if (_error == null && _progress < 1)
-              _buildProgressBar(context),
+            _buildProgressBar(context),
             Expanded(
               child: Stack(
                 children: [
-                  WebViewWidget(controller: _controller),
+                  if (_viewReady)
+                    WebViewWidget(controller: _controller)
+                  else
+                    _buildSkeletonPlaceholder(context),
                   if (_error != null)
                     Positioned.fill(
                       child: ColoredBox(
@@ -456,6 +503,22 @@ class _WebViewPageState extends State<WebViewPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildSkeletonPlaceholder(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return ColoredBox(
+      color: dark ? const Color(0xFF1C1C1E) : const Color(0xFFFAFAFA),
+      child: Center(
+        child: isApple
+            ? const CupertinoActivityIndicator(radius: 12)
+            : CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: scheme.primary.withValues(alpha: 0.7),
+              ),
       ),
     );
   }
@@ -503,8 +566,17 @@ class _WebViewPageState extends State<WebViewPage> {
 
     final Widget capsule;
     if (isApple) {
-      capsule = IosGlassSurface(
-        radius: 12,
+      capsule = Container(
+        decoration: BoxDecoration(
+          color: CupertinoColors.secondarySystemFill.resolveFrom(context),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: CupertinoColors.separator
+                .resolveFrom(context)
+                .withValues(alpha: 0.15),
+            width: 0.5,
+          ),
+        ),
         child: capsuleContent,
       );
     } else {
@@ -530,32 +602,40 @@ class _WebViewPageState extends State<WebViewPage> {
 
   Widget _buildProgressBar(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return SizedBox(
-      height: 2.5,
-      child: Stack(
-        children: [
-          Container(
-            color: isApple
-                ? Colors.transparent
-                : scheme.primary.withValues(alpha: 0.1),
-          ),
-          FractionallySizedBox(
-            alignment: Alignment.centerLeft,
-            widthFactor: _progress.clamp(0.04, 1.0),
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    scheme.primary,
-                    scheme.tertiary,
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(1.5),
+    return ValueListenableBuilder<double>(
+      valueListenable: _progressNotifier,
+      builder: (context, progress, _) {
+        if (progress >= 1.0 || _error != null) {
+          return const SizedBox(height: 2.5);
+        }
+        return SizedBox(
+          height: 2.5,
+          child: Stack(
+            children: [
+              Container(
+                color: isApple
+                    ? Colors.transparent
+                    : scheme.primary.withValues(alpha: 0.1),
               ),
-            ),
+              FractionallySizedBox(
+                alignment: Alignment.centerLeft,
+                widthFactor: progress.clamp(0.04, 1.0),
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        scheme.primary,
+                        scheme.tertiary,
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(1.5),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
