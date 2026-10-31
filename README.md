@@ -57,6 +57,22 @@ flutter run -d <device>
 `dart run flutter_launcher_icons` 即可）。Android 启动屏为品牌蓝纯色
 （亮色 `#3553A2` / 暗色 `#1F2C60`，见 `android/app/src/main/res/values*/`）。
 
+## 📱 没有 Mac 怎么编 iOS IPA？
+
+仓库自带 GitHub Actions（`.github/workflows/ios-ipa.yml`）：每次 push 到 main 会自动在
+**GitHub 免费的 macOS 云跑机**上执行 `flutter build ios --release --no-codesign`，
+并打包出**未签名 IPA**（Actions 页 → 对应 run → Artifacts 下载）。
+
+安装到 iPhone（任选其一）：
+
+| 方式 | 签名 | 有效期 |
+| --- | --- | --- |
+| Sideloadly / AltStore（Windows 可用）+ 个人 Apple ID | 免费 | 7 天，到期重签 |
+| 苹果开发者账号（$99/年）+ 证书 | 付费 | 1 年 |
+| TrollStore（特定 iOS 版本） | 永久 | 永久 |
+
+> Android APK 同样有 CI（`android-apk.yml`，ubuntu 跑机），push 后自动出包。
+
 ## 🏗️ 架构
 
 ```
