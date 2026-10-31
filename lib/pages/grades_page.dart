@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../core/app_state.dart';
@@ -38,12 +39,35 @@ class _GradesPageState extends State<GradesPage> {
     final sems = s.semesters;
 
     return Scaffold(
-      appBar: const PageAppBar(title: '成绩'),
-      body: ListView(
+      appBar: isApple ? null : const PageAppBar(title: '成绩'),
+      body: CustomScrollView(
         controller: _scroll,
-        padding: EdgeInsets.fromLTRB(
-            Ds.gutter, 4, Ds.gutter, portalBottomInset(context)),
-        children: [
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          if (isApple)
+            CupertinoSliverNavigationBar(
+              backgroundColor: CupertinoColors.secondarySystemGroupedBackground
+                  .resolveFrom(context)
+                  .withValues(
+                      alpha: Theme.of(context).brightness == Brightness.dark
+                          ? 0.80
+                          : 0.72),
+              border: Border(
+                bottom: BorderSide(
+                  color: IosColors.separator(
+                          Theme.of(context).brightness == Brightness.dark)
+                      .withValues(alpha: 0.35),
+                  width: 0.5,
+                ),
+              ),
+              largeTitle: const Text('成绩'),
+              transitionBetweenRoutes: false,
+            ),
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+                Ds.gutter, isApple ? 12 : 6, Ds.gutter, portalBottomInset(context)),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
           StaggerIn(index: 0, child: _GpaHero(sem: sems.first)),
           if (s.mode == SessionMode.demo) ...[
             const SizedBox(height: 14),
@@ -76,6 +100,9 @@ class _GradesPageState extends State<GradesPage> {
                 child: _GradeRow(course: sems[si].courses[i]),
               ),
           ],
+        ]),
+            ),
+          ),
         ],
       ),
     );

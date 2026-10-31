@@ -89,104 +89,204 @@ class _SchedulePageState extends State<SchedulePage> {
       return s.agendaForDate(d, liveWeek: _remoteCache[liveKey]);
     });
 
-    return Scaffold(
-      appBar: PageAppBar(
-        title: '课表',
-        actions: [
-          if (isApple)
-            CupertinoButton(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              onPressed: () => _showEventForm(context),
-              child: Semantics(
-                  label: '添加日程',
-                  button: true,
-                  child: const Icon(CupertinoIcons.add)),
-            ),
-          if (_fetching)
-            const Padding(
-              padding: EdgeInsets.only(right: 16),
-              child: SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2)),
-            )
-          else if (_fetchFailed)
-            Padding(
-              padding: const EdgeInsets.only(right: 14),
-              child: Tooltip(
-                message: '实时数据获取失败，已展示推算课表',
-                child: Icon(Icons.cloud_off, size: 18, color: scheme.outline),
+    final weekSwitcher = _WeekSwitcher(
+      weekNumber: week,
+      rangeText:
+          '${Fmt.monthDay(_weekStart)} – ${Fmt.monthDay(_weekStart.add(const Duration(days: 6)))}',
+      isCurrent: _isCurrent,
+      onPrev: () {
+        setState(() {
+          _offset--;
+          _fetchFailed = false;
+        });
+        _maybeFetch();
+      },
+      onNext: () {
+        setState(() {
+          _offset++;
+          _fetchFailed = false;
+        });
+        _maybeFetch();
+      },
+      onBackToCurrent: () {
+        setState(() {
+          _offset = _currentWeekOffset(DateTime.now());
+          _fetchFailed = false;
+        });
+        _maybeFetch();
+      },
+    );
+
+    if (!isApple) {
+      return Scaffold(
+        appBar: PageAppBar(
+          title: '课表',
+          actions: [
+            if (_fetching)
+              const Padding(
+                padding: EdgeInsets.only(right: 16),
+                child: SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2)),
+              )
+            else if (_fetchFailed)
+              Padding(
+                padding: const EdgeInsets.only(right: 14),
+                child: Tooltip(
+                  message: '实时数据获取失败，已展示推算课表',
+                  child: Icon(Icons.cloud_off, size: 18, color: scheme.outline),
+                ),
+              ),
+          ],
+        ),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: () => _showEventForm(context),
+          icon: const Icon(Icons.add),
+          label: const Text('添加日程'),
+        ),
+        body: Column(
+          children: [
+            weekSwitcher,
+            _SemesterBanner(week: week),
+            if (MediaQuery.sizeOf(context).width <
+                680 * MediaQuery.textScalerOf(context).scale(1))
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text('左右滑动查看整周 · 点按课程查看详情',
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(color: scheme.onSurfaceVariant)),
+              ),
+            Expanded(
+              child: SingleChildScrollView(
+                controller: _scroll,
+                padding: EdgeInsets.only(bottom: portalBottomInset(context)),
+                child: LayoutBuilder(
+                    builder: (context, constraints) => SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: SizedBox(
+                            width: constraints.maxWidth.clamp(
+                                680 * MediaQuery.textScalerOf(context).scale(1),
+                                double.infinity),
+                            child: _Grid(
+                              days: days,
+                              weekStart: _weekStart,
+                              today: today,
+                              isCurrentWeek: _isCurrent,
+                              onEventTap: (occ) => _showDetail(context, occ),
+                            ),
+                          ),
+                        )),
               ),
             ),
-        ],
-      ),
-      floatingActionButton: isApple
-          ? null
-          : FloatingActionButton.extended(
-              onPressed: () => _showEventForm(context),
-              icon: const Icon(Icons.add),
-              label: const Text('添加日程'),
+          ],
+        ),
+      );
+    }
+
+    return Scaffold(
+      body: CustomScrollView(
+        controller: _scroll,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          CupertinoSliverNavigationBar(
+            backgroundColor: CupertinoColors.secondarySystemGroupedBackground
+                .resolveFrom(context)
+                .withValues(
+                    alpha: Theme.of(context).brightness == Brightness.dark
+                        ? 0.80
+                        : 0.72),
+            border: Border(
+              bottom: BorderSide(
+                color: IosColors.separator(
+                        Theme.of(context).brightness == Brightness.dark)
+                    .withValues(alpha: 0.35),
+                width: 0.5,
+              ),
             ),
-      body: Column(
-        children: [
-          _WeekSwitcher(
-            weekNumber: week,
-            rangeText:
-                '${Fmt.monthDay(_weekStart)} – ${Fmt.monthDay(_weekStart.add(const Duration(days: 6)))}',
-            isCurrent: _isCurrent,
-            onPrev: () {
-              setState(() {
-                _offset--;
-                _fetchFailed = false;
-              });
-              _maybeFetch();
-            },
-            onNext: () {
-              setState(() {
-                _offset++;
-                _fetchFailed = false;
-              });
-              _maybeFetch();
-            },
-            onBackToCurrent: () {
-              setState(() {
-                _offset = _currentWeekOffset(DateTime.now());
-                _fetchFailed = false;
-              });
-              _maybeFetch();
-            },
+            largeTitle: const Text('课表'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(32, 32),
+                  onPressed: () => _showEventForm(context),
+                  child: Semantics(
+                    label: '添加日程',
+                    button: true,
+                    child: const Icon(CupertinoIcons.add, size: 22),
+                  ),
+                ),
+                if (_fetching)
+                  const Padding(
+                    padding: EdgeInsets.only(left: 6),
+                    child: SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CupertinoActivityIndicator(radius: 7),
+                    ),
+                  )
+                else if (_fetchFailed)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: Tooltip(
+                      message: '实时数据获取失败，已展示推算课表',
+                      child: Icon(Icons.cloud_off,
+                          size: 18, color: scheme.outline),
+                    ),
+                  ),
+              ],
+            ),
+            transitionBetweenRoutes: false,
           ),
-          _SemesterBanner(week: week),
-          if (MediaQuery.sizeOf(context).width <
-              680 * MediaQuery.textScalerOf(context).scale(1))
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Text('左右滑动查看整周 · 点按课程查看详情',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: scheme.onSurfaceVariant)),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  weekSwitcher,
+                  const SizedBox(height: 8),
+                  _SemesterBanner(week: week),
+                  if (MediaQuery.sizeOf(context).width <
+                      680 * MediaQuery.textScalerOf(context).scale(1)) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      '左右滑动查看整周 · 点按课程查看详情',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: scheme.onSurfaceVariant),
+                    ),
+                  ],
+                ],
+              ),
             ),
-          Expanded(
-            child: SingleChildScrollView(
-              controller: _scroll,
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
               padding: EdgeInsets.only(bottom: portalBottomInset(context)),
               child: LayoutBuilder(
-                  builder: (context, constraints) => SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: SizedBox(
-                          width: constraints.maxWidth.clamp(
-                              680 * MediaQuery.textScalerOf(context).scale(1),
-                              double.infinity),
-                          child: _Grid(
-                            days: days,
-                            weekStart: _weekStart,
-                            today: today,
-                            isCurrentWeek: _isCurrent,
-                            onEventTap: (occ) => _showDetail(context, occ),
-                          ),
-                        ),
-                      )),
+                builder: (context, constraints) => SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: SizedBox(
+                    width: constraints.maxWidth.clamp(
+                        680 * MediaQuery.textScalerOf(context).scale(1),
+                        double.infinity),
+                    child: _Grid(
+                      days: days,
+                      weekStart: _weekStart,
+                      today: today,
+                      isCurrentWeek: _isCurrent,
+                      onEventTap: (occ) => _showDetail(context, occ),
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
         ],
@@ -607,52 +707,108 @@ class _WeekSwitcher extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+    final content = Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: isApple ? 10 : 8,
+        vertical: isApple ? 6 : 4,
+      ),
       child: Row(
         children: [
-          IconButton(
-            onPressed: onPrev,
-            icon: const Icon(Icons.chevron_left),
-            tooltip: '上一周',
-          ),
+          isApple
+              ? CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(36, 36),
+                  onPressed: onPrev,
+                  child: const Icon(CupertinoIcons.chevron_left, size: 20),
+                )
+              : IconButton(
+                  onPressed: onPrev,
+                  icon: const Icon(Icons.chevron_left),
+                  tooltip: '上一周',
+                ),
           Expanded(
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   '第 $weekNumber 周',
                   style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
+                    fontSize: 16.5,
+                    fontWeight: FontWeight.w700,
                     color: scheme.onSurface,
+                    letterSpacing: -0.2,
                   ),
                 ),
+                const SizedBox(height: 1),
                 Text(
                   rangeText,
                   style: TextStyle(
                     fontSize: 11.5,
                     color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
             ),
           ),
-          IconButton(
-            onPressed: onNext,
-            icon: const Icon(Icons.chevron_right),
-            tooltip: '下一周',
-          ),
-          if (!isCurrent)
-            Tooltip(
-              message: '回到本周',
-              child: IconButton(
-                onPressed: onBackToCurrent,
-                icon: const Icon(Icons.today, size: 20),
-              ),
-            ),
+          isApple
+              ? CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(36, 36),
+                  onPressed: onNext,
+                  child: const Icon(CupertinoIcons.chevron_right, size: 20),
+                )
+              : IconButton(
+                  onPressed: onNext,
+                  icon: const Icon(Icons.chevron_right),
+                  tooltip: '下一周',
+                ),
+          if (!isCurrent) ...[
+            const SizedBox(width: 4),
+            isApple
+                ? CupertinoButton(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
+                    minimumSize: const Size(32, 28),
+                    color: scheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                    onPressed: onBackToCurrent,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(CupertinoIcons.calendar_today,
+                            size: 13, color: scheme.primary),
+                        const SizedBox(width: 3),
+                        Text(
+                          '本周',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: scheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : Tooltip(
+                    message: '回到本周',
+                    child: IconButton(
+                      onPressed: onBackToCurrent,
+                      icon: const Icon(Icons.today, size: 20),
+                    ),
+                  ),
+          ],
         ],
       ),
     );
+
+    if (isApple) {
+      return IosGlassSurface(
+        radius: 14,
+        child: content,
+      );
+    }
+    return content;
   }
 }
 

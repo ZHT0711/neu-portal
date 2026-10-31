@@ -66,14 +66,34 @@ class _ServicesPageState extends State<ServicesPage> {
     final noLocalMatch = apps.isEmpty && sections.isEmpty;
 
     return Scaffold(
-      appBar: const PageAppBar(title: '服务'),
+      appBar: isApple ? null : const PageAppBar(title: '服务'),
       body: CustomScrollView(
         controller: _scroll,
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         slivers: [
+          if (isApple)
+            CupertinoSliverNavigationBar(
+              backgroundColor: CupertinoColors.secondarySystemGroupedBackground
+                  .resolveFrom(context)
+                  .withValues(
+                      alpha: Theme.of(context).brightness == Brightness.dark
+                          ? 0.80
+                          : 0.72),
+              border: Border(
+                bottom: BorderSide(
+                  color: IosColors.separator(
+                          Theme.of(context).brightness == Brightness.dark)
+                      .withValues(alpha: 0.35),
+                  width: 0.5,
+                ),
+              ),
+              largeTitle: const Text('服务'),
+              transitionBetweenRoutes: false,
+            ),
+
           // ── 搜索框 ──
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+            padding: EdgeInsets.fromLTRB(16, isApple ? 12 : 6, 16, 0),
             sliver: SliverToBoxAdapter(
               child: AdaptiveSearchField(
                 controller: _queryCtrl,

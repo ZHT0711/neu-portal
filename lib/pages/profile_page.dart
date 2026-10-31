@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../core/app_state.dart';
@@ -40,11 +41,35 @@ class _ProfilePageState extends State<ProfilePage> {
     final u = s.user;
 
     return Scaffold(
-      appBar: const PageAppBar(title: '我的'),
-      body: ListView(
+      appBar: isApple ? null : const PageAppBar(title: '我的'),
+      body: CustomScrollView(
         controller: _scroll,
-        padding: EdgeInsets.fromLTRB(16, 4, 16, portalBottomInset(context)),
-        children: [
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          if (isApple)
+            CupertinoSliverNavigationBar(
+              backgroundColor: CupertinoColors.secondarySystemGroupedBackground
+                  .resolveFrom(context)
+                  .withValues(
+                      alpha: Theme.of(context).brightness == Brightness.dark
+                          ? 0.80
+                          : 0.72),
+              border: Border(
+                bottom: BorderSide(
+                  color: IosColors.separator(
+                          Theme.of(context).brightness == Brightness.dark)
+                      .withValues(alpha: 0.35),
+                  width: 0.5,
+                ),
+              ),
+              largeTitle: const Text('我的'),
+              transitionBetweenRoutes: false,
+            ),
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+                16, isApple ? 12 : 6, 16, portalBottomInset(context)),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
           // 用户卡
           StaggerIn(
             index: 0,
@@ -408,7 +433,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '东大一号通 v1.2.0\n'
+                  '东大一号通 v1.0.0 正式版\n'
                   '${isApple ? 'iOS 设计' : 'Material 3'} · ${demoNews.length} 条真实资讯快照',
                   textAlign: TextAlign.center,
                   style: TextStyle(
@@ -418,6 +443,9 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ),
               ],
+            ),
+          ),
+        ]),
             ),
           ),
         ],

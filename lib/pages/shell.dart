@@ -20,6 +20,7 @@ class AdaptiveShell extends StatefulWidget {
 
 class _AdaptiveShellState extends State<AdaptiveShell> {
   int _index = 0;
+  final Set<int> _visited = {0};
   DateTime? _lastTapAt;
   int? _lastTapIndex;
 
@@ -38,7 +39,10 @@ class _AdaptiveShellState extends State<AdaptiveShell> {
     }
     if (_index != i) {
       hapticSelect();
-      setState(() => _index = i);
+      setState(() {
+        _index = i;
+        _visited.add(i);
+      });
     }
   }
 
@@ -190,6 +194,7 @@ class _AdaptiveShellState extends State<AdaptiveShell> {
           Expanded(
             child: _FadeIndexedStack(
               index: _index,
+              visited: _visited,
               children: _pages,
             ),
           ),
@@ -204,9 +209,14 @@ class _AdaptiveShellState extends State<AdaptiveShell> {
 
 /// IndexedStack + 渐隐渐现，切页不丢状态又带过渡。
 class _FadeIndexedStack extends StatelessWidget {
-  const _FadeIndexedStack({required this.index, required this.children});
+  const _FadeIndexedStack({
+    required this.index,
+    required this.visited,
+    required this.children,
+  });
 
   final int index;
+  final Set<int> visited;
   final List<Widget> children;
 
   @override
@@ -215,13 +225,17 @@ class _FadeIndexedStack extends StatelessWidget {
       index: index,
       children: [
         for (var i = 0; i < children.length; i++)
-          AnimatedOpacity(
-            opacity: i == index ? 1 : 0,
-            duration: MediaQuery.disableAnimationsOf(context)
-                ? Duration.zero
-                : const Duration(milliseconds: 180),
-            child: TickerMode(enabled: i == index, child: children[i]),
-          ),
+          if (visited.contains(i))
+            AnimatedOpacity(
+              opacity: i == index ? 1 : 0,
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              child: TickerMode(enabled: i == index, child: children[i]),
+            )
+          else
+            const SizedBox.shrink(),
       ],
     );
   }

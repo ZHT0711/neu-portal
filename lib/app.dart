@@ -7,6 +7,7 @@ import 'core/theme.dart';
 import 'core/ios_glass.dart';
 import 'core/platform_style.dart';
 import 'pages/shell.dart';
+import 'widgets/neu_splash.dart';
 
 class NEUPortalApp extends StatelessWidget {
   const NEUPortalApp({super.key, required this.state});
@@ -42,7 +43,10 @@ class NEUPortalApp extends StatelessWidget {
                 supportedLocales: const [Locale('zh', 'CN')],
                 locale: const Locale('zh', 'CN'),
                 builder: (context, child) => IosGlassEnvironment(child: child!),
-                home: const AdaptiveShell(),
+                home: NeuSplashView(
+                  isReady: !s.loading,
+                  child: const AdaptiveShell(),
+                ),
               );
             },
           );
