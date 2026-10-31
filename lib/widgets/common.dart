@@ -6,7 +6,6 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
-import '../core/ios_glass.dart';
 import '../core/links.dart';
 import '../core/platform_style.dart';
 import '../core/theme.dart';
@@ -51,7 +50,9 @@ class SectionHeader extends StatelessWidget {
   }
 }
 
-/// 分组面板：自带 Material（墨水涟漪 / ListTile 正常工作），在 iOS 下呈现原生液态玻璃。
+/// 分组面板：自带 Material（墨水涟漪 / ListTile 正常工作）。
+/// 遵循 Apple HIG 规范：卡片内容层使用次级分组背景与微阴影，将液态玻璃留给导航与悬浮控制层，
+/// 带来清晰的层级对比，同时消除重复毛玻璃着色器引发的 GPU 发热与卡顿。
 class Panel extends StatelessWidget {
   const Panel({super.key, required this.child, this.padding, this.color});
 
@@ -62,14 +63,38 @@ class Panel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+
     if (isApple) {
-      return IosGlassSurface(
-        radius: Ds.rMd,
-        child: Material(
-          color: color ?? Colors.transparent,
-          child: padding == null
-              ? child
-              : Padding(padding: padding!, child: child),
+      final cardColor = color ??
+          (dark ? const Color(0xFF1C1C1E) : const Color(0xFFFFFFFF));
+      return RepaintBoundary(
+        child: Container(
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.circular(Ds.rMd),
+            border: Border.all(
+              color: dark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : const Color(0x14000000),
+              width: 0.6,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: (dark ? Colors.black : const Color(0xFF3553A2))
+                    .withValues(alpha: dark ? 0.22 : 0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Material(
+            color: Colors.transparent,
+            child: padding == null
+                ? child
+                : Padding(padding: padding!, child: child),
+          ),
         ),
       );
     }

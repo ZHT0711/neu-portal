@@ -215,7 +215,7 @@ class PortalClient {
       {int maxHops = 10}) async {
     for (var hop = 0; hop < maxHops; hop++) {
       req.followRedirects = false;
-      final resp = await _http.send(req).timeout(const Duration(seconds: 20));
+      final resp = await _http.send(req).timeout(const Duration(seconds: 10));
       _cookies.absorb(Uri.parse('${req.url.scheme}://${req.url.host}'), resp);
       final loc = resp.headers['location'];
       if (resp.statusCode >= 300 && resp.statusCode < 400 && loc != null) {

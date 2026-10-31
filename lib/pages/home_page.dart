@@ -43,7 +43,6 @@ class _HomePageState extends State<HomePage> {
     final today = s.todayAgenda();
     final next = s.nextAgenda();
     final name = s.user.name.isEmpty ? '同学' : s.user.name;
-    final sid = s.user.sid.isEmpty ? 'NEUer' : s.user.sid;
     final college = s.user.department.isEmpty ? '未来技术学院' : s.user.department;
     final greeting = '${Fmt.greeting(now)}，$name';
     final dateText = Fmt.full(now);
@@ -73,27 +72,32 @@ class _HomePageState extends State<HomePage> {
                   width: 0.5,
                 ),
               ),
-              leading: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ClipOval(
-                    child: Image.asset(
-                      'assets/icon/neu_crest.png',
-                      width: 26,
-                      height: 26,
-                      fit: BoxFit.cover,
+              leading: Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ClipOval(
+                      child: Image.asset(
+                        'assets/icon/neu_crest.png',
+                        width: 24,
+                        height: 24,
+                        cacheWidth: 48,
+                        cacheHeight: 48,
+                        fit: BoxFit.cover,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    '东北大学',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.3,
+                    const SizedBox(width: 6),
+                    const Text(
+                      '东北大学',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.3,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -107,7 +111,7 @@ class _HomePageState extends State<HomePage> {
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 9, vertical: 4),
+                          horizontal: 8, vertical: 3.5),
                       decoration: BoxDecoration(
                         color: Theme.of(context)
                             .colorScheme
@@ -126,13 +130,13 @@ class _HomePageState extends State<HomePage> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(Icons.qr_code_2,
-                              size: 15,
+                              size: 14,
                               color: Theme.of(context).colorScheme.primary),
-                          const SizedBox(width: 4),
+                          const SizedBox(width: 3),
                           Text(
                             'e码通',
                             style: TextStyle(
-                              fontSize: 11.5,
+                              fontSize: 11,
                               fontWeight: FontWeight.w600,
                               color: Theme.of(context).colorScheme.primary,
                             ),
@@ -155,6 +159,8 @@ class _HomePageState extends State<HomePage> {
                         child: Image.network(
                           s.user.avatarUrl,
                           fit: BoxFit.cover,
+                          cacheWidth: 56,
+                          cacheHeight: 56,
                           errorBuilder: (_, _, _) => Container(
                             color: Theme.of(context)
                                 .colorScheme
@@ -186,12 +192,12 @@ class _HomePageState extends State<HomePage> {
           if (isApple)
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
+                padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
                 child: Row(
                   children: [
                     Expanded(
                       child: Text(
-                        '$sid · $college · $dateText',
+                        '$college · $dateText',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -533,26 +539,37 @@ class _SearchCard extends StatelessWidget {
     final dark = scheme.brightness == Brightness.dark;
 
     final content = InkWell(
-      borderRadius: BorderRadius.circular(20),
-      onTap: onTap,
+      borderRadius: BorderRadius.circular(22),
+      onTap: () {
+        HapticFeedback.lightImpact();
+        onTap();
+      },
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
         child: Row(
           children: [
-            Icon(Icons.search, size: 20, color: scheme.primary),
+            Icon(isApple ? CupertinoIcons.search : Icons.search,
+                size: 19, color: scheme.primary),
             const SizedBox(width: 10),
-            Text('搜索应用与服务…',
-                style:
-                    TextStyle(color: scheme.onSurfaceVariant, fontSize: 14)),
-            const Spacer(),
+            Expanded(
+              child: Text(
+                '搜索应用、课程或校园服务…',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+                    fontSize: 14),
+              ),
+            ),
+            const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.all(5),
               decoration: BoxDecoration(
-                color: scheme.primaryContainer,
+                color: scheme.primary.withValues(alpha: dark ? 0.20 : 0.10),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.arrow_forward,
-                  size: 13, color: scheme.onPrimaryContainer),
+              child: Icon(Icons.arrow_forward_rounded,
+                  size: 13, color: scheme.primary),
             ),
           ],
         ),
@@ -561,7 +578,9 @@ class _SearchCard extends StatelessWidget {
 
     if (isApple) {
       return IosGlassSurface(
-        radius: 20,
+        radius: 22,
+        blurSigma: 18,
+        specular: true,
         child: Material(
           color: Colors.transparent,
           child: content,
@@ -571,7 +590,7 @@ class _SearchCard extends StatelessWidget {
 
     return Material(
       color: dark ? scheme.surfaceContainerLow : Colors.white,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(22),
       elevation: dark ? 0 : 2,
       shadowColor: scheme.primary.withValues(alpha: 0.12),
       child: content,
@@ -688,40 +707,42 @@ class _StatsStrip extends StatelessWidget {
       scheme.secondary,
       scheme.primary,
     ];
-    return Panel(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      child: Row(
-        children: [
-          for (var i = 0; i < s.dataCards.length; i++) ...[
-            if (i > 0)
-              Container(
-                  width: 1,
-                  height: 34,
-                  color: scheme.outlineVariant.withValues(alpha: 0.6)),
-            Expanded(
-              child: Column(
-                children: [
-                  Icon(icons[i % icons.length],
-                      size: 17, color: tones[i % tones.length]),
-                  const SizedBox(height: 6),
-                  CountUpText(
-                    s.dataCards[i].value,
-                    suffix: s.dataCards[i].unit,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: scheme.onSurface,
-                        fontFeatures: const [FontFeature.tabularFigures()]),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(s.dataCards[i].name,
-                      style: Theme.of(context)
-                          .textTheme
-                          .labelSmall
-                          ?.copyWith(color: scheme.onSurfaceVariant)),
-                ],
+    return RepaintBoundary(
+      child: Panel(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Row(
+          children: [
+            for (var i = 0; i < s.dataCards.length; i++) ...[
+              if (i > 0)
+                Container(
+                    width: 1,
+                    height: 34,
+                    color: scheme.outlineVariant.withValues(alpha: 0.6)),
+              Expanded(
+                child: Column(
+                  children: [
+                    Icon(icons[i % icons.length],
+                        size: 17, color: tones[i % tones.length]),
+                    const SizedBox(height: 6),
+                    CountUpText(
+                      s.dataCards[i].value,
+                      suffix: s.dataCards[i].unit,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: scheme.onSurface,
+                          fontFeatures: const [FontFeature.tabularFigures()]),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(s.dataCards[i].name,
+                        style: Theme.of(context)
+                            .textTheme
+                            .labelSmall
+                            ?.copyWith(color: scheme.onSurfaceVariant)),
+                  ],
+                ),
               ),
-            ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -737,56 +758,114 @@ class _TodaySchedule extends StatelessWidget {
   Widget build(BuildContext context) {
     if (courses.isEmpty) {
       final scheme = Theme.of(context).colorScheme;
-      return SizedBox(
-        width: double.infinity,
-        child: Panel(
-          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: isApple
-                      ? scheme.primary.withValues(alpha: 0.12)
-                      : scheme.surfaceContainerHighest,
-                  shape: BoxShape.circle,
-                  border: isApple
-                      ? Border.all(
-                          color: scheme.primary.withValues(alpha: 0.25),
-                          width: 1,
-                        )
-                      : null,
+      final dark = Theme.of(context).brightness == Brightness.dark;
+      return Panel(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(13),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    scheme.primary.withValues(alpha: dark ? 0.25 : 0.14),
+                    scheme.tertiary.withValues(alpha: dark ? 0.20 : 0.08),
+                  ],
                 ),
+                border: Border.all(
+                  color: scheme.primary.withValues(alpha: dark ? 0.35 : 0.20),
+                  width: 0.75,
+                ),
+              ),
+              child: Center(
                 child: Icon(
-                  isApple
-                      ? CupertinoIcons.sparkles
-                      : Icons.self_improvement,
-                  size: 24,
+                  isApple ? CupertinoIcons.sparkles : Icons.wb_sunny_rounded,
+                  size: 21,
                   color: scheme.primary,
                 ),
               ),
-              const SizedBox(height: 12),
-              Text(
-                '今天没有课，好好休息',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: scheme.onSurface,
-                  letterSpacing: -0.2,
-                ),
+            ),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      Text(
+                        '今日暂无排课',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: scheme.onSurface,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: scheme.primary.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          '自由时间',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                            color: scheme.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '自习、阅读或开展科研 · 祝你有充实的一天',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 5),
-              Text(
-                '享受自习与休闲时光 · 可在「完整课表」查看本周日程',
-                style: TextStyle(
-                  fontSize: 12,
+            ),
+            const SizedBox(width: 6),
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(28, 28),
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                final nav = PortalNavigation.maybeOf(context);
+                if (nav != null) {
+                  nav.select(1);
+                }
+              },
+              child: Container(
+                padding: const EdgeInsets.all(6.5),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest.withValues(
+                      alpha: dark ? 0.5 : 0.8),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  size: 11,
                   color: scheme.onSurfaceVariant,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     }
@@ -990,14 +1069,15 @@ class _AppsPagerState extends State<_AppsPager> {
     final scheme = Theme.of(context).colorScheme;
     return Column(
       children: [
-        Panel(
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 6),
-          child: SizedBox(
-            height: 2 * (76 + MediaQuery.textScalerOf(context).scale(28)),
-            child: PageView.builder(
-              itemCount: pages.length,
-              onPageChanged: (i) => setState(() => _page = i),
-              itemBuilder: (context, pi) {
+        RepaintBoundary(
+          child: Panel(
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 6),
+            child: SizedBox(
+              height: 2 * (76 + MediaQuery.textScalerOf(context).scale(28)),
+              child: PageView.builder(
+                itemCount: pages.length,
+                onPageChanged: (i) => setState(() => _page = i),
+                itemBuilder: (context, pi) {
                 final chunk = pages[pi];
                 return GridView.builder(
                   padding: EdgeInsets.zero,
@@ -1017,6 +1097,7 @@ class _AppsPagerState extends State<_AppsPager> {
               },
             ),
           ),
+        ),
         ),
         if (pages.length > 1)
           Row(

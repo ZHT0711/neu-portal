@@ -9,15 +9,43 @@ import 'core/platform_style.dart';
 import 'pages/shell.dart';
 import 'widgets/neu_splash.dart';
 
-class NEUPortalApp extends StatelessWidget {
+class NEUPortalApp extends StatefulWidget {
   const NEUPortalApp({super.key, required this.state});
 
   final AppState state;
 
   @override
+  State<NEUPortalApp> createState() => _NEUPortalAppState();
+}
+
+class _NEUPortalAppState extends State<NEUPortalApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
+    // 监听应用生命周期（解决 pixez-flutter Issue #1110 锁屏/后台高 CPU 发热缺陷）
+    if (lifecycle == AppLifecycleState.paused ||
+        lifecycle == AppLifecycleState.inactive ||
+        lifecycle == AppLifecycleState.hidden) {
+      // 释放键盘焦点与瞬态手势，避免后台轮询
+      FocusManager.instance.primaryFocus?.unfocus();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AppScope(
-      state: state,
+      state: widget.state,
       child: DynamicColorBuilder(
         builder: (lightDynamic, darkDynamic) {
           // Builder 的 context 在 AppScope 之下，设置变更时随 InheritedNotifier 重建。
