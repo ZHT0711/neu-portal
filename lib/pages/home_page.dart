@@ -147,17 +147,8 @@ class _Header extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return DecoratedBox(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          stops: const [0, 0.7, 1],
-          colors: [
-            scheme.primary,
-            Color.lerp(scheme.primary, scheme.tertiary, 0.45)!,
-            Color.lerp(scheme.primary, scheme.tertiary, 0.7)!,
-          ],
-        ),
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(30)),
+        color: scheme.primary,
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(Ds.rXl)),
       ),
       child: SafeArea(
         bottom: false,
@@ -454,19 +445,19 @@ class _StatsStrip extends StatelessWidget {
                   CountUpText(
                     s.dataCards[i].value,
                     suffix: s.dataCards[i].unit,
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                      color: scheme.onSurface,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(
+                            color: scheme.onSurface,
+                            fontFeatures: const [
+                              FontFeature.tabularFigures()
+                            ]),
                   ),
                   const SizedBox(height: 2),
-                  Text(
-                    s.dataCards[i].name,
-                    style: TextStyle(
-                        fontSize: 11, color: scheme.onSurfaceVariant),
-                  ),
+                  Text(s.dataCards[i].name,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant)),
                 ],
               ),
             ),

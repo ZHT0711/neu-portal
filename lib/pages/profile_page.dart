@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/app_state.dart';
 import '../core/demo_data.dart';
+import '../core/theme.dart';
 import '../widgets/common.dart';
 import 'login_page.dart';
 
@@ -26,22 +27,8 @@ class ProfilePage extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    scheme.primary,
-                    Color.lerp(scheme.primary, scheme.tertiary, 0.5)!,
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(26),
-                boxShadow: [
-                  BoxShadow(
-                    color: scheme.primary.withValues(alpha: 0.22),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
+                color: scheme.primaryContainer,
+                borderRadius: BorderRadius.circular(Ds.rXl),
               ),
               child: Row(
                 children: [
@@ -63,10 +50,10 @@ class ProfilePage extends StatelessWidget {
                             errorBuilder: (_, __, ___) => Center(
                               child: Text(
                                 u.name.characters.first,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 23,
                                   fontWeight: FontWeight.w800,
-                                  color: Colors.white,
+                                  color: scheme.onPrimaryContainer,
                                 ),
                               ),
                             ),
@@ -89,29 +76,34 @@ class ProfilePage extends StatelessWidget {
                       children: [
                         Text(
                           u.name,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 21,
-                            fontWeight: FontWeight.w800,
-                          ),
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(
+                                  color: scheme.onPrimaryContainer,
+                                  fontWeight: FontWeight.w800),
                         ),
                         const SizedBox(height: 3),
                         Text(
                           '${u.sid} · ${u.identity} · ${u.department}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.white.withValues(alpha: 0.85),
-                          ),
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(
+                                  color: scheme.onPrimaryContainer
+                                      .withValues(alpha: 0.85)),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           u.email,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            color: Colors.white.withValues(alpha: 0.7),
-                          ),
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(
+                                  color: scheme.onPrimaryContainer
+                                      .withValues(alpha: 0.7)),
                         ),
                       ],
                     ),

@@ -76,13 +76,10 @@ class Panel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final panelColor = color ??
-        (scheme.brightness == Brightness.light
-            ? Colors.white
-            : scheme.surfaceContainerLow);
+    final panelColor = color ?? scheme.surfaceContainerLow;
     return Material(
       color: panelColor,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Ds.rLg)),
       clipBehavior: Clip.antiAlias,
       child: padding == null ? child : Padding(padding: padding!, child: child),
     );
@@ -301,11 +298,11 @@ class EmptyHint extends StatelessWidget {
               color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, size: 28, color: scheme.outline),
+            child: Icon(icon, size: 26, color: scheme.outline),
           ),
           const SizedBox(height: 12),
-          Text(text,
-              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+          Text(text, style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: scheme.onSurfaceVariant)),
         ],
       ),
     );
