@@ -4,13 +4,34 @@ import 'package:flutter/services.dart';
 import '../core/app_state.dart';
 import '../core/links.dart';
 import '../core/models.dart';
+import '../core/tab_scroller.dart';
 import '../core/theme.dart';
 import '../widgets/common.dart';
 import 'schedule_page.dart';
 import 'services_page.dart';
 
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  final _scroll = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    TabScroller.attach(0, _scroll);
+  }
+
+  @override
+  void dispose() {
+    TabScroller.detach(0);
+    _scroll.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,6 +46,7 @@ class HomePage extends StatelessWidget {
         await s.refresh();
       },
       child: CustomScrollView(
+        controller: _scroll,
         physics: const AlwaysScrollableScrollPhysics(
           parent: BouncingScrollPhysics(),
         ),

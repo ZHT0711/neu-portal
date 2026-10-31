@@ -2,13 +2,34 @@ import 'package:flutter/material.dart';
 
 import '../core/app_state.dart';
 import '../core/demo_data.dart';
+import '../core/tab_scroller.dart';
 import '../core/theme.dart';
 import '../widgets/common.dart';
 import 'login_page.dart';
 
 /// 个人中心 + 外观设置。
-class ProfilePage extends StatelessWidget {
+class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
+
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  final _scroll = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    TabScroller.attach(4, _scroll);
+  }
+
+  @override
+  void dispose() {
+    TabScroller.detach(4);
+    _scroll.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -19,6 +40,7 @@ class ProfilePage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('我的')),
       body: ListView(
+        controller: _scroll,
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 34),
         children: [
           // 用户卡

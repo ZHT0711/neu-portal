@@ -53,12 +53,14 @@ jobs:
       - name: Build iOS (unsigned)
         run: flutter build ios --release --no-codesign
 
-      - name: Package IPA
+      - name: Package IPA (zip 容器，避免直接下载 .ipa 损坏)
         run: |
           mkdir -p build/ios/Payload
           cp -R build/ios/Release-iphoneos/Runner.app build/ios/Payload/
           cd build/ios
           zip -qry dongda-yihaotong-unsigned.ipa Payload
+          unzip -t dongda-yihaotong-unsigned.ipa > /dev/null && echo "IPA zip 校验通过"
+          shasum -a 256 dongda-yihaotong-unsigned.ipa
 
       - uses: actions/upload-artifact@v4
         with:
@@ -82,6 +84,11 @@ jobs:
           mkdir -p out
           cp dist/apk/app-release.apk out/dongda-yihaotong-nightly.apk
           cp dist/ipa/dongda-yihaotong-unsigned.ipa out/dongda-yihaotong-nightly-unsigned.ipa
+          # iOS 包再套一层 zip（实测直接下 .ipa 偶发损坏）
+          cd out
+          zip -qry dongda-yihaotong-nightly-ios.zip dongda-yihaotong-nightly-unsigned.ipa
+          shasum -a 256 dongda-yihaotong-nightly.apk dongda-yihaotong-nightly-unsigned.ipa dongda-yihaotong-nightly-ios.zip > SHA256SUMS.txt
+          cd ..
           DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
           SHA=${GITHUB_SHA::7}
           cat > notes.md <<NOTES

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/app_state.dart';
 import '../core/links.dart';
+import '../core/tab_scroller.dart';
 import '../core/models.dart';
 import '../widgets/common.dart';
 
@@ -15,12 +16,21 @@ class ServicesPage extends StatefulWidget {
 
 class _ServicesPageState extends State<ServicesPage> {
   final _queryCtrl = TextEditingController();
+  final _scroll = ScrollController();
   String _query = '';
   String _category = '全部';
 
   @override
+  void initState() {
+    super.initState();
+    TabScroller.attach(2, _scroll);
+  }
+
+  @override
   void dispose() {
+    TabScroller.detach(2);
     _queryCtrl.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -54,6 +64,7 @@ class _ServicesPageState extends State<ServicesPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('服务')),
       body: CustomScrollView(
+        controller: _scroll,
         physics: const BouncingScrollPhysics(),
         slivers: [
           // ── 搜索框 ──

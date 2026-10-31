@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'models.dart';
+import 'platform_style.dart' show IosColors;
 
 /// 设计令牌。
 abstract final class Ds {
@@ -66,8 +67,10 @@ class NeuColors {
 }
 
 class NeuTheme {
-  static ThemeData light(Color seed) => _base(seed, Brightness.light);
-  static ThemeData dark(Color seed) => _base(seed, Brightness.dark);
+  static ThemeData light(Color seed, {bool ios = false}) =>
+      _base(seed, Brightness.light, ios: ios);
+  static ThemeData dark(Color seed, {bool ios = false}) =>
+      _base(seed, Brightness.dark, ios: ios);
 
   static TextTheme _text(ColorScheme s) {
     final base = Typography.material2021();
@@ -99,30 +102,57 @@ class NeuTheme {
     ));
   }
 
-  static ThemeData _base(Color seed, Brightness brightness) {
+  static ThemeData _base(Color seed, Brightness brightness,
+      {bool ios = false}) {
     final scheme = ColorScheme.fromSeed(seedColor: seed, brightness: brightness);
     final isLight = brightness == Brightness.light;
     final text = _text(scheme);
 
+    final scheme0 = ios
+        ? scheme.copyWith(
+            primary: const Color(0xFF3553A2), // HIG 强调色：品牌蓝原色
+            onPrimary: Colors.white,
+            primaryContainer: const Color(0xFFDDE3F5),
+            onPrimaryContainer: const Color(0xFF1B2A55),
+          )
+        : scheme;
+
+    // iOS（HIG）：系统分组背景 + 白卡 + 连续圆角 12；顶栏透明（玻璃由外壳绘制）
+    final dark = brightness == Brightness.dark;
+    final surface = ios
+        ? IosColors.systemGroupedBackground(dark)
+        : scheme0.surface;
+    final cardColor = ios
+        ? IosColors.secondaryGroupedBackground(dark)
+        : scheme0.surfaceContainerLow;
+    final radius = ios ? Ds.rMd : Ds.rLg;
+
     return ThemeData(
-      colorScheme: scheme,
+      colorScheme: scheme0,
       brightness: brightness,
-      scaffoldBackgroundColor:
-          isLight ? scheme.surface : scheme.surface,
+      platform: ios ? TargetPlatform.iOS : TargetPlatform.android,
+      scaffoldBackgroundColor: surface,
       splashFactory: kIsWeb ? NoSplash.splashFactory : InkSparkle.splashFactory,
       textTheme: text,
       appBarTheme: AppBarTheme(
-        backgroundColor: scheme.surface,
-        foregroundColor: scheme.onSurface,
+        backgroundColor:
+            ios ? Colors.transparent : scheme.surface,
+        foregroundColor:
+            ios ? IosColors.label(isLight ? false : true) : scheme.onSurface,
         elevation: 0,
         scrolledUnderElevation: 0,
-        centerTitle: false,
-        titleTextStyle: text.titleLarge,
+        centerTitle: ios,
+        titleTextStyle: ios
+            ? TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: IosColors.label(isLight ? false : true))
+            : text.titleLarge,
       ),
       cardTheme: CardThemeData(
         elevation: 0,
-        color: scheme.surfaceContainerLow,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Ds.rLg)),
+        color: cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius)),
         clipBehavior: Clip.antiAlias,
         margin: EdgeInsets.zero,
       ),
@@ -133,7 +163,7 @@ class NeuTheme {
       ),
       navigationBarTheme: NavigationBarThemeData(
         height: 72,
-        backgroundColor: scheme.surface,
+        backgroundColor: Colors.transparent,
         indicatorColor: scheme.primaryContainer,
         iconTheme: WidgetStateProperty.resolveWith(
             (st) => IconThemeData(color: scheme.onSurfaceVariant)),

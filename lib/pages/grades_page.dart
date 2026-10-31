@@ -2,12 +2,33 @@ import 'package:flutter/material.dart';
 
 import '../core/app_state.dart';
 import '../core/models.dart';
+import '../core/tab_scroller.dart';
 import '../core/theme.dart';
 import '../widgets/common.dart';
 
 /// 成绩 — 教务系统真实数据（离线为演示快照）。
-class GradesPage extends StatelessWidget {
+class GradesPage extends StatefulWidget {
   const GradesPage({super.key});
+
+  @override
+  State<GradesPage> createState() => _GradesPageState();
+}
+
+class _GradesPageState extends State<GradesPage> {
+  final _scroll = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    TabScroller.attach(3, _scroll);
+  }
+
+  @override
+  void dispose() {
+    TabScroller.detach(3);
+    _scroll.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -17,6 +38,7 @@ class GradesPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('成绩')),
       body: ListView(
+        controller: _scroll,
         padding: const EdgeInsets.fromLTRB(Ds.gutter, 4, Ds.gutter, 34),
         children: [
           StaggerIn(index: 0, child: _GpaHero(sem: sems.first)),

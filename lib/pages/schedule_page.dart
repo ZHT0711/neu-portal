@@ -5,6 +5,7 @@ import '../core/app_state.dart';
 import '../core/demo_data.dart';
 import '../core/models.dart';
 import '../core/semester.dart';
+import '../core/tab_scroller.dart';
 import '../core/theme.dart';
 import 'webview_page.dart';
 
@@ -23,6 +24,7 @@ class _SchedulePageState extends State<SchedulePage> {
   static const double _rowH = 92; // 一个大节（2 小节）行高
 
   int _offset = 0; // 相对锚点周的偏移
+  final _scroll = ScrollController();
   final Map<String, List<CourseOccurrence>> _remoteCache = {};
   bool _fetching = false;
   bool _fetchFailed = false;
@@ -40,7 +42,17 @@ class _SchedulePageState extends State<SchedulePage> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeFetch());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      TabScroller.attach(1, _scroll);
+      _maybeFetch();
+    });
+  }
+
+  @override
+  void dispose() {
+    TabScroller.detach(1);
+    _scroll.dispose();
+    super.dispose();
   }
 
   Future<void> _maybeFetch() async {
@@ -133,6 +145,7 @@ class _SchedulePageState extends State<SchedulePage> {
           _SemesterBanner(week: week),
           Expanded(
             child: SingleChildScrollView(
+              controller: _scroll,
               child: _Grid(
                 days: days,
                 weekStart: _weekStart,
