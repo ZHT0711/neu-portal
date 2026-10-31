@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -9,6 +10,7 @@ void main() {
   testWidgets('底部导航栏：5 个目的地正常渲染、无溢出', (tester) async {
     tester.view.physicalSize = const Size(412, 915);
     tester.view.devicePixelRatio = 1.0;
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
     addTearDown(tester.view.reset);
     final details = <FlutterErrorDetails>[];
     final original = FlutterError.onError;
@@ -56,6 +58,7 @@ void main() {
       expect(box.localToGlobal(Offset.zero).dy, lessThan(915),
           reason: '$label 标签被布局到视口外');
     }
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('宽屏（≥900）：侧边导航栏正常、无溢出', (tester) async {

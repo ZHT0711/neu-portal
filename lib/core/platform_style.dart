@@ -8,10 +8,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// 是否为苹果平台（iOS/macOS 走 HIG 风格层）。
-bool get isApple =>
-    !kIsWeb &&
-    (Platform.isIOS || Platform.isMacOS);
+/// 是否走 HIG 风格层（液态玻璃面向 iPhone；macOS 桌面保留 MD3）。
+bool get isApple => !kIsWeb && Platform.isIOS;
 
 /// iOS 系统色（HIG 语义色，深浅色各自对应）。
 class IosColors {
