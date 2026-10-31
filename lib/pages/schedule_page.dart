@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../core/app_state.dart';
 import '../core/platform_style.dart';
+import '../core/ios_glass.dart';
 import 'package:flutter/cupertino.dart';
 import '../core/demo_data.dart';
 import '../core/models.dart';
@@ -169,6 +170,7 @@ class _SchedulePageState extends State<SchedulePage> {
           Expanded(
             child: SingleChildScrollView(
               controller: _scroll,
+              padding: EdgeInsets.only(bottom: portalBottomInset(context)),
               child: LayoutBuilder(
                   builder: (context, constraints) => SingleChildScrollView(
                         scrollDirection: Axis.horizontal,

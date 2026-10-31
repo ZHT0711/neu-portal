@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'ios_glass.dart';
 
 // Also follows Flutter's platform override, so both designs can be tested.
 bool get isApple => defaultTargetPlatform == TargetPlatform.iOS;
@@ -23,8 +24,10 @@ class IosColors {
 }
 
 class PageAppBar extends StatelessWidget implements PreferredSizeWidget {
-  const PageAppBar({super.key, required this.title, this.actions = const []});
+  const PageAppBar(
+      {super.key, required this.title, this.actions = const [], this.leading});
   final String title;
+  final Widget? leading;
   final List<Widget> actions;
 
   @override
@@ -32,19 +35,23 @@ class PageAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!isApple) return AppBar(title: Text(title), actions: actions);
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    return CupertinoNavigationBar(
-      middle: Text(title),
-      backgroundColor: IosColors.secondaryGroupedBackground(dark),
-      border: Border(
-          bottom: BorderSide(color: IosColors.separator(dark), width: 0)),
-      // Pages share one Navigator; avoid duplicate transition tags in tab views.
-      transitionBetweenRoutes: false,
-      trailing: actions.isEmpty
-          ? null
-          : Row(mainAxisSize: MainAxisSize.min, children: actions),
-    );
+    if (!isApple) {
+      return AppBar(title: Text(title), actions: actions, leading: leading);
+    }
+    return IosGlassSurface(
+        radius: 0,
+        child: CupertinoNavigationBar(
+          middle: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          leading: leading,
+          backgroundColor: Colors.transparent,
+          enableBackgroundFilterBlur: false,
+          border: null,
+          // Pages share one Navigator; avoid duplicate transition tags in tab views.
+          transitionBetweenRoutes: false,
+          trailing: actions.isEmpty
+              ? null
+              : Row(mainAxisSize: MainAxisSize.min, children: actions),
+        ));
   }
 }
 
@@ -57,15 +64,19 @@ class AdaptiveSearchField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (isApple) {
-      return CupertinoSearchTextField(
-        controller: controller,
-        placeholder: '搜索应用与服务',
-        onChanged: onChanged,
-        onSuffixTap: () {
-          controller.clear();
-          onChanged('');
-        },
-      );
+      return IosGlassSurface(
+          radius: 16,
+          child: CupertinoSearchTextField(
+            controller: controller,
+            placeholder: '搜索应用与服务',
+            backgroundColor: Colors.transparent,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
+            onChanged: onChanged,
+            onSuffixTap: () {
+              controller.clear();
+              onChanged('');
+            },
+          ));
     }
     return SearchBar(
       controller: controller,

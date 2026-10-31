@@ -4,6 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'core/app_state.dart';
 import 'core/theme.dart';
+import 'core/ios_glass.dart';
 import 'core/platform_style.dart';
 import 'pages/shell.dart';
 
@@ -40,6 +41,7 @@ class NEUPortalApp extends StatelessWidget {
                 ],
                 supportedLocales: const [Locale('zh', 'CN')],
                 locale: const Locale('zh', 'CN'),
+                builder: (context, child) => IosGlassEnvironment(child: child!),
                 home: const AdaptiveShell(),
               );
             },

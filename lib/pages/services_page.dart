@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 
 import '../core/app_state.dart';
 import '../core/platform_style.dart';
+import '../core/ios_glass.dart';
 import '../core/links.dart';
 import '../core/tab_scroller.dart';
 import '../core/models.dart';
@@ -245,7 +246,8 @@ class _ServicesPageState extends State<ServicesPage> {
             ),
           ],
 
-          const SliverToBoxAdapter(child: SizedBox(height: 34)),
+          SliverToBoxAdapter(
+              child: SizedBox(height: portalBottomInset(context))),
         ],
       ),
     );
@@ -298,7 +300,7 @@ class _HotSearchRow extends StatelessWidget {
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: hots.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            separatorBuilder: (_, _) => const SizedBox(width: 8),
             itemBuilder: (context, i) {
               final kw = hots[i];
               return InkWell(
@@ -411,7 +413,7 @@ class _CategoryChips extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         scrollDirection: Axis.horizontal,
         itemCount: categories.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
           final category = categories[i];
           final active = category == selected;

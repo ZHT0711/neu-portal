@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'models.dart';
+import 'web_policy.dart';
 import '../pages/webview_page.dart';
 
 class AppLinks {
@@ -20,24 +21,7 @@ class AppLinks {
   /// 规范化链接：
   /// - 去空白、去首尾引号
   /// - 无协议头时自动补全（校内系统多为 http；IP 直连/带端口的一律 http）
-  static String normalize(String raw) {
-    var u = raw.trim();
-    if (u.startsWith('"') || u.startsWith("'")) {
-      u = u.substring(1);
-    }
-    if (u.endsWith('"') || u.endsWith("'")) {
-      u = u.substring(0, u.length - 1);
-    }
-    if (u.isEmpty) return u;
-    final schemeRe = RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*://');
-    if (schemeRe.hasMatch(u)) return u;
-    // 校内老系统基本都是 http；对外网站默认 https
-    final looksLikeIp = RegExp(r'^\d{1,3}(\.\d{1,3}){3}').hasMatch(u);
-    final hasPort = RegExp(r':\d+').hasMatch(u.split('/').first);
-    final intranet = looksLikeIp || hasPort || u.startsWith('10.');
-    u = (intranet ? 'http://' : 'https://') + u;
-    return u;
-  }
+  static String normalize(String raw) => PortalWebPolicy.normalize(raw);
 
   /// 打开一个门户应用（自动选择最佳入口：mobile → url → mimipath）。
   static Future<void> openApp(BuildContext context, PortalApp app) {
@@ -52,34 +36,35 @@ class AppLinks {
   }) async {
     final url = normalize(rawUrl);
     final uri = Uri.tryParse(url);
-    if (url.isEmpty || uri == null || !uri.hasScheme || uri.host.isEmpty) {
+    if (url.isEmpty || !PortalWebPolicy.isWebUrl(uri)) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('该应用未提供有效链接${rawUrl.trim().isEmpty ? '' : '：$rawUrl'}')),
+          SnackBar(
+              content:
+                  Text('该应用未提供有效链接${rawUrl.trim().isEmpty ? '' : '：$rawUrl'}')),
         );
       }
       return;
     }
-    final useWeb = kIsWeb ||
-        Platform.isWindows ||
-        Platform.isLinux ||
-        Platform.isMacOS;
+    final target = uri!;
+    final useWeb =
+        kIsWeb || Platform.isWindows || Platform.isLinux || Platform.isMacOS;
     if (!useWeb) {
       if (context.mounted) {
         await Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => WebViewPage(title: title, url: uri.toString()),
+          builder: (_) => WebViewPage(title: title, url: target.toString()),
         ));
         return;
       }
     }
     final ok = await launchUrl(
-      uri,
+      target,
       mode: LaunchMode.inAppBrowserView,
       webViewConfiguration: const WebViewConfiguration(
         enableJavaScript: true,
         enableDomStorage: true,
       ),
     );
-    if (!ok) await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok) await launchUrl(target, mode: LaunchMode.externalApplication);
   }
 }

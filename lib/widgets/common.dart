@@ -217,7 +217,7 @@ class AppTile extends StatelessWidget {
           child: Image.network(
             url,
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => _letterBox(tone, size),
+            errorBuilder: (_, _, _) => _letterBox(tone, size),
           ),
         ),
       );

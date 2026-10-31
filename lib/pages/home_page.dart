@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../core/app_state.dart';
 import '../core/platform_style.dart';
+import '../core/ios_glass.dart';
 import '../core/links.dart';
 import '../core/models.dart';
 import '../core/tab_scroller.dart';
@@ -52,8 +53,11 @@ class _HomePageState extends State<HomePage> {
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           if (isApple)
-            const CupertinoSliverNavigationBar(
-              largeTitle: Text('首页'),
+            CupertinoSliverNavigationBar(
+              backgroundColor:
+                  Theme.of(context).colorScheme.surface.withValues(alpha: 0.72),
+              border: null,
+              largeTitle: const Text('首页'),
               transitionBetweenRoutes: false,
             ),
           SliverToBoxAdapter(
@@ -120,7 +124,7 @@ class _HomePageState extends State<HomePage> {
                         index: 6,
                         child: _NewsList(news: s.news.take(6).toList())),
                   ),
-                  const SizedBox(height: 34),
+                  SizedBox(height: portalBottomInset(context)),
                 ],
               ),
             ),
@@ -200,7 +204,7 @@ class _Header extends StatelessWidget {
                   child: Image.network(
                     avatarUrl,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
+                    errorBuilder: (_, _, _) => Container(
                       color: foreground.withValues(alpha: 0.18),
                       alignment: Alignment.center,
                       child: Text(
@@ -753,7 +757,7 @@ class _TodoRail extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         clipBehavior: Clip.none,
         itemCount: todos.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
         itemBuilder: (context, i) {
           final t = todos[i];
           final tone =
@@ -861,7 +865,7 @@ class _NewsList extends StatelessWidget {
                           child: Image.network(
                             n.picUrl,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => _dateBadge(n, scheme),
+                            errorBuilder: (_, _, _) => _dateBadge(n, scheme),
                           ),
                         ),
                       ),

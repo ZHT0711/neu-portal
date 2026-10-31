@@ -4,7 +4,7 @@ publish_to: "none"
 version: 1.2.0+3
 
 environment:
-  sdk: ">=3.5.0 <5.0.0"
+  sdk: ">=3.12.1 <5.0.0"
 
 dependencies:
   flutter:
@@ -18,12 +18,15 @@ dependencies:
   url_launcher: ^6.3.0
   webview_flutter: ^4.10.0
   flutter_secure_storage: ^9.2.0
+  real_liquid_glass: 0.3.0
+  webview_flutter_wkwebview: ^3.27.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.4
+  webview_flutter_platform_interface: ^2.15.1
 
 flutter_launcher_icons:
   image_path: "assets/icon/icon_main.png"

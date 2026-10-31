@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/app_state.dart';
 import '../core/platform_style.dart';
+import '../core/ios_glass.dart';
 import '../core/models.dart';
 import '../core/tab_scroller.dart';
 import '../core/theme.dart';
@@ -40,7 +41,8 @@ class _GradesPageState extends State<GradesPage> {
       appBar: const PageAppBar(title: '成绩'),
       body: ListView(
         controller: _scroll,
-        padding: const EdgeInsets.fromLTRB(Ds.gutter, 4, Ds.gutter, 34),
+        padding: EdgeInsets.fromLTRB(
+            Ds.gutter, 4, Ds.gutter, portalBottomInset(context)),
         children: [
           StaggerIn(index: 0, child: _GpaHero(sem: sems.first)),
           if (s.mode == SessionMode.demo) ...[

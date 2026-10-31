@@ -25,7 +25,7 @@
 ## 🎨 设计
 
 - Android：MD3 标准字阶、`ColorScheme.fromSeed`、tonal surface、80dp NavigationBar、ChoiceChip 与胶囊按钮
-- iOS：Cupertino 标签栏与导航栏、分组背景、滑动分段控件、搜索框和日期/时间滚轮；隐藏 Android 动态取色设置
+- iOS：通过 `real_liquid_glass` 接入原生 `UITabBar` / `UIGlassEffect`（iOS 26+），导航和搜索使用玻璃材质；旧版 iOS 使用系统模糊；保留分组背景、滑动分段控件和日期/时间滚轮
 - 小屏与大字体：应用入口按屏宽分页、外观设置独立一行、登录/日程表单可在键盘上方滚动；课表保持最小可读宽度，可左右滑动
 - 交互：首页快捷入口切换现有页签，保留搜索与滚动状态；登录支持自动填充、行内错误和重复提交保护
 - 辅助功能：主题色选中语义、完整应用名称朗读、减少动态效果设置、深色课程颜色适配
@@ -35,7 +35,7 @@
 
 ## 🚀 构建与运行
 
-环境：Flutter SDK（本机位于 `D:\flutter`）+ 各平台工具链。
+环境：Flutter 3.47.8 / Dart 3.12.1+（本机 Flutter 位于 `D:\flutter`）+ 各平台工具链。iOS 原生液态玻璃需 Xcode 26+ / iOS 26 SDK 编译，运行时仍支持 iOS 15+。
 
 ```bash
 # Web（最快的预览方式）
@@ -63,7 +63,7 @@ flutter run -d <device>
 
 ## 📱 没有 Mac 怎么编 iOS IPA？
 
-仓库自带 GitHub Actions（`.github/workflows/ios-ipa.yml`）：每次 push 到 main 会自动在
+仓库自带 GitHub Actions（`.github/workflows/build.yml`）：每次 push 到 main 会自动在
 **GitHub 免费的 macOS 云跑机**上执行 `flutter build ios --release --no-codesign`，
 并打包出**未签名 IPA**（Actions 页 → 对应 run → Artifacts 下载）。
 
@@ -79,7 +79,7 @@ flutter run -d <device>
 > （密码 neuPortal2026），保证本地与 CI 出的包签名一致、可互相覆盖安装。
 > 若要公开分发请自行更换密钥（`keytool -genkeypair`）后重新提交。
 
-> Android APK 同样有 CI（`android-apk.yml`，ubuntu 跑机），push 后自动出包。
+> Android APK 同样有 CI（同一个 `build.yml`，Ubuntu 跑机），push 后自动出包。
 
 ## 🏗️ 架构
 
@@ -126,3 +126,12 @@ flutter test --dart-define=UI_PREVIEWS=true --update-goldens test/platform_ux_te
 ```
 
 图片位于 `outputs/ui/`。iOS 真机侧滑、VoiceOver、系统字体和系统材质效果仍需 macOS / iPhone 验收。
+
+### iOS 液态玻璃与校内网页兼容
+
+- iOS 26+ 使用插件原生 `UITabBar` 和 `UIGlassEffect`，旧版系统回退系统模糊。Windows / Web 预览仅能展示 Flutter 模糊回退，不能代表原生玻璃的折射和触感；原生效果需 iPhone 验收。
+- 浮动底栏之下允许内容滚动，各页面预留末尾空间，最后一项能完整移出底栏。高对比度预览采用不透明表面，原生材质遵循系统辅助功能设置。
+- `Info.plist` 的 `NSAllowsArbitraryLoadsInWebContent` 允许 WKWebView 打开校园 HTTP-only 系统和其网页资源；未设置全局 `NSAllowsArbitraryLoads`。
+- 门户明确提供的 `http://` 链接原样加载，保留端口、路径和 SSO 参数；iOS 手机版使用真实 WKWebView 默认 UA，不再伪装 Android Chrome。保留桌面版切换、网页新窗口入口与系统浏览器兜底。
+- 校内 HTTPS 页面加载失败后自动尝试 HTTP，使用重定向后的当前地址，并保留端口、路径和查询参数。同一次加载中每个 HTTPS 来源最多自动尝试一次，避免 HTTP / HTTPS 重定向循环；明确的 HTTP 入口不会被反向升级。统一认证、门户和 VPN 登录入口保持 HTTPS。失败页保留手动切换和系统浏览器入口；复制、重试、外部浏览器均使用当前地址。
+- iOS 构建工作流选择 macOS 26 / Xcode 26；这里只修改构建配置，尚未执行远程构建。Windows 测试使用 WebView 平台替身，不能替代真实站点 SSO / WebKit 兼容测试。

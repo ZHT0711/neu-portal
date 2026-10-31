@@ -37,9 +37,14 @@ jobs:
           path: build/app/outputs/flutter-apk/app-release.apk
 
   ios:
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
+
+      # UIGlassEffect requires building against the iOS 26 SDK or newer.
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26'
 
       - uses: subosito/flutter-action@v2.23.0
         with:

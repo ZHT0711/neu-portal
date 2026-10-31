@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/app_state.dart';
 import '../core/platform_style.dart';
+import '../core/ios_glass.dart';
 import '../core/demo_data.dart';
 import '../core/tab_scroller.dart';
 import '../core/theme.dart';
@@ -42,7 +43,7 @@ class _ProfilePageState extends State<ProfilePage> {
       appBar: const PageAppBar(title: '我的'),
       body: ListView(
         controller: _scroll,
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 34),
+        padding: EdgeInsets.fromLTRB(16, 4, 16, portalBottomInset(context)),
         children: [
           // 用户卡
           StaggerIn(
@@ -70,7 +71,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         ? Image.network(
                             u.avatarUrl,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Center(
+                            errorBuilder: (_, _, _) => Center(
                               child: Text(
                                 u.name.characters.first,
                                 style: TextStyle(

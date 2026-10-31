@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 
 import '../core/platform_style.dart';
+import '../core/ios_glass.dart';
+import 'package:real_liquid_glass/real_liquid_glass.dart';
 import '../core/tab_scroller.dart';
 import 'grades_page.dart';
 import 'home_page.dart';
@@ -81,10 +83,24 @@ class _AdaptiveShellState extends State<AdaptiveShell> {
     CupertinoIcons.person_fill,
   ];
 
+  static const _appleSymbols = [
+    'house',
+    'calendar',
+    'square.grid.2x2',
+    'chart.bar',
+    'person'
+  ];
+  static const _appleSelectedSymbols = [
+    'house.fill',
+    'calendar',
+    'square.grid.2x2.fill',
+    'chart.bar.fill',
+    'person.fill'
+  ];
+
   @override
   Widget build(BuildContext context) {
     final wide = !isApple && MediaQuery.sizeOf(context).width >= 900;
-    final scheme = Theme.of(context).colorScheme;
 
     final navBar = NavigationBar(
       selectedIndex: _index,
@@ -150,26 +166,24 @@ class _AdaptiveShellState extends State<AdaptiveShell> {
     final Widget? bottomBar = wide
         ? null
         : isApple
-            ? CupertinoTabBar(
-                currentIndex: _index,
+            ? IosLiquidTabBar(
+                index: _index,
                 onTap: _select,
-                activeColor: scheme.primary,
-                backgroundColor: IosColors.secondaryGroupedBackground(
-                    scheme.brightness == Brightness.dark),
-                iconSize: 25,
-                height: 50,
                 items: [
                   for (var i = 0; i < _titles.length; i++)
-                    BottomNavigationBarItem(
-                      icon: Icon(_appleIcons[i]),
-                      activeIcon: Icon(_appleSelectedIcons[i]),
+                    LiquidGlassBarItem(
+                      icon: _appleIcons[i],
+                      selectedIcon: _appleSelectedIcons[i],
+                      sfSymbol: _appleSymbols[i],
+                      selectedSfSymbol: _appleSelectedSymbols[i],
                       label: _titles[i],
-                    ),
+                    )
                 ],
               )
             : navBar;
 
     final body = Scaffold(
+      extendBody: isApple,
       body: Row(
         children: [
           if (wide) rail,
