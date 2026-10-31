@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/cupertino.dart';
+import '../core/platform_style.dart';
+import '../widgets/common.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/app_state.dart';
@@ -14,18 +16,14 @@ class LoginPage extends StatefulWidget {
   State<LoginPage> createState() => _LoginPageState();
 }
 
-class _LoginPageState extends State<LoginPage>
-    with SingleTickerProviderStateMixin {
+class _LoginPageState extends State<LoginPage> {
   final _sid = TextEditingController();
   final _pwd = TextEditingController();
   bool _remember = true;
   bool _keepLogin = true;
   bool _obscure = true;
   bool _loading = false;
-  late final AnimationController _entrance = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 600),
-  )..forward();
+  String? _error;
 
   @override
   void initState() {
@@ -47,12 +45,16 @@ class _LoginPageState extends State<LoginPage>
   }
 
   Future<void> _submit() async {
+    if (_loading) return;
     if (_sid.text.trim().isEmpty || _pwd.text.isEmpty) {
-      _toast('请输入学号/工号和密码');
+      setState(() => _error = '请输入学号/工号和密码');
       return;
     }
     FocusScope.of(context).unfocus();
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     final state = AppScope.of(context);
     try {
       await state.login(_sid.text.trim(), _pwd.text);
@@ -70,15 +72,23 @@ class _LoginPageState extends State<LoginPage>
       }
       if (!mounted) return;
       _toast('欢迎回来，${state.user.name}');
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const AdaptiveShell()),
-      );
+      _finish();
     } on PortalException catch (e) {
-      _toast(e.message);
+      if (mounted) setState(() => _error = e.message);
     } catch (_) {
-      _toast('登录失败：网络不可达（校外请先连接 VPN），或试试离线体验');
+      if (mounted) setState(() => _error = '暂时无法登录，请检查网络；校外请先连接 VPN。');
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _finish() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      navigator.pushReplacement(
+          MaterialPageRoute(builder: (_) => const AdaptiveShell()));
     }
   }
 
@@ -91,7 +101,6 @@ class _LoginPageState extends State<LoginPage>
 
   @override
   void dispose() {
-    _entrance.dispose();
     _sid.dispose();
     _pwd.dispose();
     super.dispose();
@@ -100,269 +109,180 @@ class _LoginPageState extends State<LoginPage>
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final size = MediaQuery.sizeOf(context);
-    final wide = size.width > 700;
-
+    final text = Theme.of(context).textTheme;
     return Scaffold(
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          // 背景：品牌色渐变 + 装饰圆
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  scheme.primary,
-                  Color.lerp(scheme.primary, Colors.black, 0.35)!,
-                ],
-              ),
-            ),
-          ),
-          Positioned(
-            right: -80,
-            top: -60,
-            child: _blob(260, Colors.white.withValues(alpha: 0.06)),
-          ),
-          Positioned(
-            left: -70,
-            bottom: 40,
-            child: _blob(200, Colors.white.withValues(alpha: 0.05)),
-          ),
-          // 内容
-          Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: FadeTransition(
-                opacity: CurvedAnimation(
-                  parent: _entrance,
-                  curve: Curves.easeOutCubic,
-                ),
-                child: SlideTransition(
-                  position: Tween(
-                    begin: const Offset(0, 0.04),
-                    end: Offset.zero,
-                  ).animate(CurvedAnimation(
-                    parent: _entrance,
-                    curve: Curves.easeOutCubic,
-                  )),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: wide ? 400 : 460),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const _Brand(),
-                        const SizedBox(height: 26),
-                        Card(
-                          color: scheme.surface
-                              .withValues(alpha: 0.96),
-                          child: Padding(
-                            padding: const EdgeInsets.all(22),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Text(
-                                  '账号登录',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleMedium
-                                      ?.copyWith(
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                ),
-                                const SizedBox(height: 18),
-                                TextField(
-                                  controller: _sid,
-                                  keyboardType: TextInputType.number,
-                                  inputFormatters: [
-                                    FilteringTextInputFormatter.allow(
-                                        RegExp(r'[0-9]')),
-                                  ],
-                                  decoration: const InputDecoration(
-                                    prefixIcon: Icon(Icons.badge_outlined),
-                                    labelText: '学号 / 工号',
-                                    hintText: '请输入你的学号',
-                                  ),
-                                  textInputAction: TextInputAction.next,
-                                ),
-                                const SizedBox(height: 14),
-                                TextField(
-                                  controller: _pwd,
-                                  obscureText: _obscure,
-                                  onSubmitted: (_) => _submit(),
-                                  decoration: InputDecoration(
-                                    prefixIcon:
-                                        const Icon(Icons.lock_outline),
-                                    labelText: '密码',
-                                    suffixIcon: IconButton(
-                                      onPressed: () =>
-                                          setState(() => _obscure = !_obscure),
-                                      icon: Icon(_obscure
-                                          ? Icons.visibility_off_outlined
-                                          : Icons.visibility_outlined),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    SizedBox(
-                                      height: 32,
-                                      child: Checkbox(
-                                        value: _remember,
-                                        onChanged: (v) =>
-                                            setState(() => _remember = v ?? true),
-                                      ),
-                                    ),
-                                    const Text('记住账号',
-                                        style: TextStyle(fontSize: 13)),
-                                    const Spacer(),
-                                    SizedBox(
-                                      height: 32,
-                                      child: Checkbox(
-                                        value: _keepLogin,
-                                        onChanged: (v) =>
-                                            setState(() => _keepLogin = v ?? true),
-                                      ),
-                                    ),
-                                    const Text('保持登录',
-                                        style: TextStyle(fontSize: 13)),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                FilledButton(
-                                  onPressed: _loading ? null : _submit,
-                                  style: FilledButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 14),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                  ),
-                                  child: _loading
-                                      ? const SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: CircularProgressIndicator(
-                                              strokeWidth: 2.4),
-                                        )
-                                      : const Text(
-                                          '登  录',
-                                          style: TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w600),
-                                        ),
-                                ),
-                                const SizedBox(height: 10),
-                                OutlinedButton.icon(
-                                  onPressed: _loading
-                                      ? null
-                                      : () {
-                                          AppScope.of(context).enterDemo();
-                                          Navigator.of(context).pushReplacement(
-                                            MaterialPageRoute(
-                                                builder: (_) =>
-                                                    const AdaptiveShell()),
-                                          );
-                                        },
-                                  style: OutlinedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 12),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                  ),
-                                  icon: const Icon(Icons.explore_outlined,
-                                      size: 18),
-                                  label: const Text('离线体验（演示数据）'),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '使用学校统一身份认证（CAS）账号登录，'
-                                  '密码仅用于本次认证，不会被存储。',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: scheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+      appBar: const PageAppBar(title: '统一身份认证'),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: AutofillGroup(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Align(
+                          alignment: Alignment.centerLeft,
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                                color: scheme.primaryContainer,
+                                borderRadius: BorderRadius.circular(24)),
+                            child: Icon(
+                                isApple
+                                    ? CupertinoIcons.building_2_fill
+                                    : Icons.account_balance,
+                                color: scheme.onPrimaryContainer,
+                                size: 32),
+                          )),
+                      const SizedBox(height: 24),
+                      Text('连接你的校园生活', style: text.headlineMedium),
+                      const SizedBox(height: 8),
+                      Text('使用东北大学统一身份认证账号登录',
+                          style: text.bodyLarge
+                              ?.copyWith(color: scheme.onSurfaceVariant)),
+                      const SizedBox(height: 28),
+                      Panel(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(children: [
+                            _field(
+                                controller: _sid,
+                                label: '学号 / 工号',
+                                autofillHints: const [AutofillHints.username],
+                                action: TextInputAction.next),
+                            const SizedBox(height: 16),
+                            _field(
+                                controller: _pwd,
+                                label: '密码',
+                                autofillHints: const [AutofillHints.password],
+                                password: true,
+                                action: TextInputAction.done),
+                          ])),
+                      const SizedBox(height: 12),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('记住账号'),
+                        value: _remember,
+                        onChanged: _loading
+                            ? null
+                            : (value) => setState(() => _remember = value),
+                      ),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('保持登录'),
+                        subtitle: const Text('凭证加密保存在本机，可随时退出并清除'),
+                        value: _keepLogin,
+                        onChanged: _loading
+                            ? null
+                            : (value) => setState(() => _keepLogin = value),
+                      ),
+                      if (_error != null)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Semantics(
+                              liveRegion: true,
+                              child: Text(_error!,
+                                  style: text.bodyMedium
+                                      ?.copyWith(color: scheme.error))),
                         ),
-                        const SizedBox(height: 20),
-                        Text(
-                          '东北大学 NORTHEASTERN UNIVERSITY\n'
-                          '沈阳市和平区文化路三号巷11号',
+                      const SizedBox(height: 20),
+                      AdaptiveFilledButton(
+                        onPressed: _loading ? null : _submit,
+                        child: _loading
+                            ? const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                    SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child:
+                                            CircularProgressIndicator.adaptive(
+                                                strokeWidth: 2)),
+                                    SizedBox(width: 12),
+                                    Text('正在登录…'),
+                                  ])
+                            : const Text('登录'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextButton(
+                        onPressed: _loading
+                            ? null
+                            : () {
+                                AppScope.of(context).enterDemo();
+                                _finish();
+                              },
+                        child: const Text('先体验离线演示'),
+                      ),
+                      const SizedBox(height: 16),
+                      Text('未开启保持登录时，密码仅用于本次认证。',
                           textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 11,
-                            height: 1.6,
-                            color: Colors.white.withValues(alpha: 0.75),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                          style: text.bodySmall
+                              ?.copyWith(color: scheme.onSurfaceVariant)),
+                    ]),
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _blob(double size, Color color) => Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(size),
+  Widget _field(
+      {required TextEditingController controller,
+      required String label,
+      required List<String> autofillHints,
+      required TextInputAction action,
+      bool password = false}) {
+    final toggle = password
+        ? IconButton(
+            tooltip: _obscure ? '显示密码' : '隐藏密码',
+            onPressed: () => setState(() => _obscure = !_obscure),
+            icon: Icon(_obscure
+                ? Icons.visibility_outlined
+                : Icons.visibility_off_outlined),
+          )
+        : null;
+    if (isApple) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, style: Theme.of(context).textTheme.bodyMedium),
+        const SizedBox(height: 8),
+        CupertinoTextField(
+          controller: controller,
+          placeholder: label,
+          enabled: !_loading,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          obscureText: password && _obscure,
+          suffix: toggle,
+          autofillHints: autofillHints,
+          textInputAction: action,
+          autocorrect: false,
+          enableSuggestions: false,
+          keyboardType:
+              password ? TextInputType.visiblePassword : TextInputType.text,
+          onSubmitted: (_) {
+            if (password) {
+              _submit();
+            } else {
+              FocusScope.of(context).nextFocus();
+            }
+          },
         ),
-      );
-}
-
-class _Brand extends StatelessWidget {
-  const _Brand();
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.14),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
-          ),
-          child: const Icon(Icons.account_balance,
-              color: Colors.white, size: 34),
-        ),
-        const SizedBox(height: 14),
-        const Text(
-          '统一身份认证',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 24,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 2,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'NORTHEASTERN UNIVERSITY UNIFORM IDENTITY AUTHENTICATION',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.66),
-            fontSize: 9,
-            letterSpacing: 1.1,
-          ),
-        ),
-      ],
+      ]);
+    }
+    return TextField(
+      controller: controller,
+      enabled: !_loading,
+      obscureText: password && _obscure,
+      autofillHints: autofillHints,
+      textInputAction: action,
+      autocorrect: false,
+      enableSuggestions: false,
+      decoration: InputDecoration(labelText: label, suffixIcon: toggle),
+      onSubmitted: (_) {
+        if (password) _submit();
+      },
     );
   }
 }

@@ -21,16 +21,16 @@ void main() {
     final state = AppState();
     await tester.pumpWidget(AppScope(
       state: state,
-      child: MaterialApp(
+      child: const MaterialApp(
         // 模拟真机中文环境：复现 "No MaterialLocalizations found" 回归
-        locale: const Locale('zh', 'CN'),
-        localizationsDelegates: const [
+        locale: Locale('zh', 'CN'),
+        localizationsDelegates: [
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
         ],
-        supportedLocales: const [Locale('zh', 'CN')],
-        home: const AdaptiveShell(),
+        supportedLocales: [Locale('zh', 'CN')],
+        home: AdaptiveShell(),
       ),
     ));
     try {
@@ -68,7 +68,7 @@ void main() {
     final state = AppState();
     await tester.pumpWidget(AppScope(
       state: state,
-      child: MaterialApp(home: AdaptiveShell()),
+      child: const MaterialApp(home: AdaptiveShell()),
     ));
     try {
       await tester.pumpAndSettle(const Duration(seconds: 2));

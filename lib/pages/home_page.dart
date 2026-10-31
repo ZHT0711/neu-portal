@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
 import '../core/app_state.dart';
+import '../core/platform_style.dart';
 import '../core/links.dart';
 import '../core/models.dart';
 import '../core/tab_scroller.dart';
@@ -40,46 +42,41 @@ class _HomePageState extends State<HomePage> {
     final today = s.todayAgenda();
     final next = s.nextAgenda();
 
-    return RefreshIndicator(
+    return RefreshIndicator.adaptive(
       onRefresh: () async {
         HapticFeedback.lightImpact();
         await s.refresh();
       },
       child: CustomScrollView(
         controller: _scroll,
-        physics: const AlwaysScrollableScrollPhysics(
-          parent: BouncingScrollPhysics(),
-        ),
+        physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
-          SliverAppBar(
-            pinned: false,
-            expandedHeight: 152,
-            toolbarHeight: 0,
-            flexibleSpace: FlexibleSpaceBar(
-              background: _Header(
-                name: s.user.name,
-                sid: s.user.sid,
-                avatarUrl: s.user.avatarUrl,
-                greeting: Fmt.greeting(now),
-                dateText: Fmt.full(now),
-                isDemo: s.mode == SessionMode.demo,
-                ecodeUrl: s.ecodeEntryUrl,
-              ),
+          if (isApple)
+            const CupertinoSliverNavigationBar(
+              largeTitle: Text('首页'),
+              transitionBetweenRoutes: false,
+            ),
+          SliverToBoxAdapter(
+            child: _Header(
+              name: s.user.name,
+              sid: s.user.sid,
+              avatarUrl: s.user.avatarUrl,
+              greeting: Fmt.greeting(now),
+              dateText: Fmt.full(now),
+              isDemo: s.mode == SessionMode.demo,
+              ecodeUrl: s.ecodeEntryUrl,
             ),
           ),
           SliverToBoxAdapter(
-            child: Transform.translate(
-              offset: const Offset(0, -18),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
                     child: _SearchCard(
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) => const ServicesPage()),
-                      ),
+                      onTap: () => _openServices(context),
                     ),
                   ),
                   if (next != null)
@@ -101,13 +98,11 @@ class _HomePageState extends State<HomePage> {
                   ),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child:
-                        StaggerIn(index: 3, child: _TodaySchedule(courses: today)),
+                    child: StaggerIn(
+                        index: 3, child: _TodaySchedule(courses: today)),
                   ),
-                  SectionHeader(
-                      '常用应用',
-                      action: '服务大厅',
-                      onAction: () => _openServices(context)),
+                  SectionHeader('常用应用',
+                      action: '服务大厅', onAction: () => _openServices(context)),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: StaggerIn(index: 4, child: _AppsPager(apps: s.apps)),
@@ -115,13 +110,15 @@ class _HomePageState extends State<HomePage> {
                   const SectionHeader('办事动态'),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: StaggerIn(index: 5, child: _TodoRail(todos: s.todos)),
+                    child:
+                        StaggerIn(index: 5, child: _TodoRail(todos: s.todos)),
                   ),
                   const SectionHeader('校园资讯'),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: StaggerIn(
-                        index: 6, child: _NewsList(news: s.news.take(6).toList())),
+                        index: 6,
+                        child: _NewsList(news: s.news.take(6).toList())),
                   ),
                   const SizedBox(height: 34),
                 ],
@@ -134,11 +131,21 @@ class _HomePageState extends State<HomePage> {
   }
 
   static void _openSchedule(BuildContext context) {
+    final navigation = PortalNavigation.maybeOf(context);
+    if (navigation != null) {
+      navigation.select(1);
+      return;
+    }
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const SchedulePage()));
   }
 
   static void _openServices(BuildContext context) {
+    final navigation = PortalNavigation.maybeOf(context);
+    if (navigation != null) {
+      navigation.select(2);
+      return;
+    }
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const ServicesPage()));
   }
@@ -167,10 +174,12 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final foreground = isApple ? scheme.onSurface : scheme.onPrimary;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: scheme.primary,
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(Ds.rXl)),
+        color: isApple ? scheme.surfaceContainerLow : scheme.primary,
+        borderRadius:
+            const BorderRadius.vertical(bottom: Radius.circular(Ds.rXl)),
       ),
       child: SafeArea(
         bottom: false,
@@ -184,7 +193,7 @@ class _Header extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(17),
                   border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.55), width: 1.6),
+                      color: foreground.withValues(alpha: 0.55), width: 1.6),
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(15.5),
@@ -192,12 +201,12 @@ class _Header extends StatelessWidget {
                     avatarUrl,
                     fit: BoxFit.cover,
                     errorBuilder: (_, __, ___) => Container(
-                      color: Colors.white.withValues(alpha: 0.18),
+                      color: foreground.withValues(alpha: 0.18),
                       alignment: Alignment.center,
                       child: Text(
                         name.isNotEmpty ? name.characters.first : '同',
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: foreground,
                           fontSize: 20,
                           fontWeight: FontWeight.w800,
                         ),
@@ -209,12 +218,13 @@ class _Header extends StatelessWidget {
               const SizedBox(width: 13),
               Expanded(
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       '$greeting，$name',
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: foreground,
                         fontSize: 20,
                         fontWeight: FontWeight.w800,
                         letterSpacing: -0.2,
@@ -224,53 +234,22 @@ class _Header extends StatelessWidget {
                     Text(
                       '$sid · 未来技术学院',
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.82),
+                        color: foreground.withValues(alpha: 0.82),
                         fontSize: 12.5,
                       ),
                     ),
                     const SizedBox(height: 7),
-                    Row(
-                      children: [
-                        Icon(Icons.event_available,
-                            size: 13,
-                            color: Colors.white.withValues(alpha: 0.85)),
-                        const SizedBox(width: 5),
-                        Flexible(
-                          child: Text(
-                            dateText,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                    Wrap(spacing: 8, runSpacing: 6, children: [
+                      Text(dateText,
+                          style: TextStyle(
+                              color: foreground.withValues(alpha: 0.85),
+                              fontSize: 12)),
+                      if (isDemo)
+                        Text('离线演示',
                             style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.85),
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                        if (isDemo) ...[
-                          const SizedBox(width: 9),
-                          Flexible(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 2.5),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.16),
-                                borderRadius: BorderRadius.circular(99),
-                                border: Border.all(
-                                    color:
-                                        Colors.white.withValues(alpha: 0.3)),
-                              ),
-                              child: const Text(
-                                '离线演示',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                    color: Colors.white, fontSize: 10.5),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
+                                color: foreground.withValues(alpha: 0.85),
+                                fontSize: 12)),
+                    ]),
                   ],
                 ),
               ),
@@ -284,19 +263,18 @@ class _Header extends StatelessWidget {
                   width: 56,
                   height: 56,
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.16),
+                    color: foreground.withValues(alpha: 0.16),
                     borderRadius: BorderRadius.circular(17),
-                    border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.4)),
+                    border:
+                        Border.all(color: foreground.withValues(alpha: 0.4)),
                   ),
-                  child: const Column(
+                  child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.qr_code_2, color: Colors.white, size: 27),
-                      SizedBox(height: 1),
+                      Icon(Icons.qr_code_2, color: foreground, size: 27),
+                      const SizedBox(height: 1),
                       Text('e码通',
-                          style: TextStyle(
-                              color: Colors.white, fontSize: 8.5)),
+                          style: TextStyle(color: foreground, fontSize: 8.5)),
                     ],
                   ),
                 ),
@@ -363,7 +341,7 @@ class _NextCourseBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final tone = NeuColors.slotTone(occ.slot);
+    final tone = NeuColors.adaptiveTone(context, NeuColors.slotTone(occ.slot));
     final now = DateTime.now();
     final cur = now.hour * 60 + now.minute;
     final ongoing = cur >= occ.slot.startMinutes && cur < occ.slot.endMinutes;
@@ -381,7 +359,10 @@ class _NextCourseBanner extends StatelessWidget {
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [tone.withValues(alpha: 0.2), tone.withValues(alpha: 0.08)],
+                  colors: [
+                    tone.withValues(alpha: 0.2),
+                    tone.withValues(alpha: 0.08)
+                  ],
                 ),
                 borderRadius: BorderRadius.circular(13),
               ),
@@ -458,28 +439,29 @@ class _StatsStrip extends StatelessWidget {
         children: [
           for (var i = 0; i < s.dataCards.length; i++) ...[
             if (i > 0)
-              Container(width: 1, height: 34, color: scheme.outlineVariant.withValues(alpha: 0.6)),
+              Container(
+                  width: 1,
+                  height: 34,
+                  color: scheme.outlineVariant.withValues(alpha: 0.6)),
             Expanded(
               child: Column(
                 children: [
-                  Icon(icons[i % icons.length], size: 17, color: tones[i % tones.length]),
+                  Icon(icons[i % icons.length],
+                      size: 17, color: tones[i % tones.length]),
                   const SizedBox(height: 6),
                   CountUpText(
                     s.dataCards[i].value,
                     suffix: s.dataCards[i].unit,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleLarge
-                        ?.copyWith(
-                            color: scheme.onSurface,
-                            fontFeatures: const [
-                              FontFeature.tabularFigures()
-                            ]),
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: scheme.onSurface,
+                        fontFeatures: const [FontFeature.tabularFigures()]),
                   ),
                   const SizedBox(height: 2),
                   Text(s.dataCards[i].name,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: scheme.onSurfaceVariant)),
+                      style: Theme.of(context)
+                          .textTheme
+                          .labelSmall
+                          ?.copyWith(color: scheme.onSurfaceVariant)),
                 ],
               ),
             ),
@@ -500,7 +482,7 @@ class _TodaySchedule extends StatelessWidget {
   Widget build(BuildContext context) {
     if (courses.isEmpty) {
       return const Panel(
-        child: EmptyHint('今天没有课，好好休息 ☕', icon: Icons.self_improvement),
+        child: EmptyHint('今天没有课，好好休息', icon: Icons.self_improvement),
       );
     }
     final now = DateTime.now();
@@ -513,9 +495,8 @@ class _TodaySchedule extends StatelessWidget {
             _CourseRow(
               occ: courses[i],
               first: i == 0,
-              ongoing:
-                  cur >= courses[i].slot.startMinutes &&
-                      cur < courses[i].slot.endMinutes,
+              ongoing: cur >= courses[i].slot.startMinutes &&
+                  cur < courses[i].slot.endMinutes,
             ),
         ],
       ),
@@ -536,9 +517,13 @@ class _CourseRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tone = NeuColors.slotTone(occ.slot);
+    final tone = NeuColors.adaptiveTone(context, NeuColors.slotTone(occ.slot));
     final scheme = Theme.of(context).colorScheme;
-    final kindLabel = occ.slot.kind == 'exam' ? '考试' : occ.slot.kind == 'custom' ? '日程' : null;
+    final kindLabel = occ.slot.kind == 'exam'
+        ? '考试'
+        : occ.slot.kind == 'custom'
+            ? '日程'
+            : null;
     return IntrinsicHeight(
       child: Row(
         children: [
@@ -576,8 +561,8 @@ class _CourseRow extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: tone,
                   shape: BoxShape.circle,
-                  border: Border.all(
-                      color: scheme.surfaceContainerLow, width: 2),
+                  border:
+                      Border.all(color: scheme.surfaceContainerLow, width: 2),
                   boxShadow: [
                     BoxShadow(
                         color: tone.withValues(alpha: 0.4), blurRadius: 6),
@@ -649,7 +634,8 @@ class _CourseRow extends StatelessWidget {
                   const SizedBox(height: 3),
                   Row(
                     children: [
-                      Icon(Icons.place, size: 13, color: scheme.onSurfaceVariant),
+                      Icon(Icons.place,
+                          size: 13, color: scheme.onSurfaceVariant),
                       const SizedBox(width: 3),
                       Text(
                         occ.slot.room,
@@ -687,9 +673,14 @@ class _AppsPagerState extends State<_AppsPager> {
   @override
   Widget build(BuildContext context) {
     final list = widget.apps.take(16).toList();
+    final columns = ((MediaQuery.sizeOf(context).width - 44) /
+            (80 * MediaQuery.textScalerOf(context).scale(1)))
+        .floor()
+        .clamp(2, 8);
+    final pageSize = columns * 2;
     final pages = <List<PortalApp>>[
-      list.sublist(0, list.length >= 8 ? 8 : list.length),
-      if (list.length > 8) list.sublist(8),
+      for (var i = 0; i < list.length; i += pageSize)
+        list.sublist(i, (i + pageSize).clamp(0, list.length)),
     ];
     final scheme = Theme.of(context).colorScheme;
     return Column(
@@ -697,26 +688,26 @@ class _AppsPagerState extends State<_AppsPager> {
         Panel(
           padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 6),
           child: SizedBox(
-            height: 96,
+            height: 2 * (76 + MediaQuery.textScalerOf(context).scale(28)),
             child: PageView.builder(
               itemCount: pages.length,
               onPageChanged: (i) => setState(() => _page = i),
               itemBuilder: (context, pi) {
                 final chunk = pages[pi];
-                return Row(
-                  children: [
-                    for (final a in chunk)
-                      Expanded(
-                        child: AppTile(
-                          name: a.name,
-                          iconUrl: a.iconUrl,
-                          onTap: () =>
-                              AppLinks.openApp(context, a),
-                        ),
-                      ),
-                    for (var i = chunk.length; i < 8; i++)
-                      const Expanded(child: SizedBox()),
-                  ],
+                return GridView.builder(
+                  padding: EdgeInsets.zero,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: columns,
+                    mainAxisExtent:
+                        76 + MediaQuery.textScalerOf(context).scale(28),
+                  ),
+                  itemCount: chunk.length,
+                  itemBuilder: (context, i) => AppTile(
+                    name: chunk[i].name,
+                    iconUrl: chunk[i].iconUrl,
+                    onTap: () => AppLinks.openApp(context, chunk[i]),
+                  ),
                 );
               },
             ),
@@ -729,13 +720,12 @@ class _AppsPagerState extends State<_AppsPager> {
               for (var i = 0; i < pages.length; i++)
                 AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  margin: const EdgeInsets.symmetric(horizontal: 3, vertical: 8),
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 3, vertical: 8),
                   width: _page == i ? 16 : 6,
                   height: 6,
                   decoration: BoxDecoration(
-                    color: _page == i
-                        ? scheme.primary
-                        : scheme.outlineVariant,
+                    color: _page == i ? scheme.primary : scheme.outlineVariant,
                     borderRadius: BorderRadius.circular(3),
                   ),
                 ),
@@ -758,7 +748,7 @@ class _TodoRail extends StatelessWidget {
       return const Panel(child: EmptyHint('暂无待办事项', icon: Icons.task_alt));
     }
     return SizedBox(
-      height: 96,
+      height: 60 + MediaQuery.textScalerOf(context).scale(48),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         clipBehavior: Clip.none,
@@ -766,7 +756,8 @@ class _TodoRail extends StatelessWidget {
         separatorBuilder: (_, __) => const SizedBox(width: 10),
         itemBuilder: (context, i) {
           final t = todos[i];
-          final tone = NeuColors.avatarColor(t.title);
+          final tone =
+              NeuColors.adaptiveTone(context, NeuColors.avatarColor(t.title));
           final done = t.percent >= 100;
           return Panel(
             color: Theme.of(context).colorScheme.brightness == Brightness.light
@@ -804,9 +795,7 @@ class _TodoRail extends StatelessWidget {
                             fontSize: 13,
                             fontWeight: FontWeight.w800,
                             color: tone,
-                            fontFeatures: const [
-                              FontFeature.tabularFigures()
-                            ],
+                            fontFeatures: const [FontFeature.tabularFigures()],
                           ),
                         ),
                       ],
@@ -826,7 +815,8 @@ class _TodoRail extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                           fontSize: 11,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant),
+                          color:
+                              Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                   ],
                 ),
@@ -871,8 +861,7 @@ class _NewsList extends StatelessWidget {
                           child: Image.network(
                             n.picUrl,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) =>
-                                _dateBadge(n, scheme),
+                            errorBuilder: (_, __, ___) => _dateBadge(n, scheme),
                           ),
                         ),
                       ),
@@ -898,8 +887,7 @@ class _NewsList extends StatelessWidget {
                           Text(
                             '${n.category} · ${Fmt.isoToCn(n.date)}',
                             style: TextStyle(
-                                fontSize: 11,
-                                color: scheme.onSurfaceVariant),
+                                fontSize: 11, color: scheme.onSurfaceVariant),
                           ),
                         ],
                       ),

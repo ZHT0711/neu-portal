@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/app_state.dart';
+import '../core/platform_style.dart';
 import '../core/demo_data.dart';
 import '../core/tab_scroller.dart';
 import '../core/theme.dart';
@@ -38,7 +39,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final u = s.user;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('我的')),
+      appBar: const PageAppBar(title: '我的'),
       body: ListView(
         controller: _scroll,
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 34),
@@ -83,10 +84,10 @@ class _ProfilePageState extends State<ProfilePage> {
                         : Center(
                             child: Text(
                               u.name.characters.first,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 23,
                                 fontWeight: FontWeight.w800,
-                                color: Colors.white,
+                                color: scheme.onPrimaryContainer,
                               ),
                             ),
                           ),
@@ -163,41 +164,34 @@ class _ProfilePageState extends State<ProfilePage> {
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: Column(
                     children: [
-                      ListTile(
-                        leading: const Icon(Icons.contrast),
-                        title: const Text('主题模式'),
-                        subtitle: const Text('自动 / 亮色 / 暗色'),
-                        trailing: SegmentedButton<ThemeMode>(
-                          segments: const [
-                            ButtonSegment(
-                                value: ThemeMode.system,
-                                icon: Icon(Icons.auto_mode, size: 17),
-                                label: Text('自动')),
-                            ButtonSegment(
-                                value: ThemeMode.light,
-                                icon: Icon(Icons.light_mode, size: 17),
-                                label: Text('亮色')),
-                            ButtonSegment(
-                                value: ThemeMode.dark,
-                                icon: Icon(Icons.dark_mode, size: 17),
-                                label: Text('暗色')),
-                          ],
-                          selected: {s.themeMode},
-                          showSelectedIcon: false,
-                          style: const ButtonStyle(
-                            visualDensity: VisualDensity.compact,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      const ListTile(
+                        leading: Icon(Icons.contrast),
+                        title: Text('主题模式'),
+                        subtitle: Text('自动 / 亮色 / 暗色'),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: AdaptiveSegments<ThemeMode>(
+                            values: const {
+                              ThemeMode.system: '自动',
+                              ThemeMode.light: '浅色',
+                              ThemeMode.dark: '深色'
+                            },
+                            selected: s.themeMode,
+                            onChanged: s.setThemeMode,
                           ),
-                          onSelectionChanged: (sel) => s.setThemeMode(sel.first),
                         ),
                       ),
-                      SwitchListTile(
-                        secondary: const Icon(Icons.palette_outlined),
-                        title: const Text('动态取色 (Material You)'),
-                        subtitle: const Text('Android 12+ 跟随壁纸配色'),
-                        value: s.useDynamicColor,
-                        onChanged: s.setUseDynamicColor,
-                      ),
+                      if (!isApple)
+                        SwitchListTile(
+                          secondary: const Icon(Icons.palette_outlined),
+                          title: const Text('动态取色 (Material You)'),
+                          subtitle: const Text('Android 12+ 跟随壁纸配色'),
+                          value: s.useDynamicColor,
+                          onChanged: s.setUseDynamicColor,
+                        ),
                       ListTile(
                         leading: const Icon(Icons.colorize),
                         title: const Text('主题色'),
@@ -217,8 +211,8 @@ class _ProfilePageState extends State<ProfilePage> {
                               ])
                                 _SeedDot(
                                   color: c,
-                                  selected:
-                                      !s.useDynamicColor && s.seedColor == c,
+                                  selected: (isApple || !s.useDynamicColor) &&
+                                      s.seedColor == c,
                                   onTap: () => s.setSeedColor(c),
                                 ),
                             ],
@@ -247,8 +241,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       const ListTile(
                         leading: Icon(Icons.info_outline),
                         title: Text('数据来源'),
-                        subtitle:
-                            Text('东北大学一号通门户（personal.neu.edu.cn）'),
+                        subtitle: Text('东北大学一号通门户（personal.neu.edu.cn）'),
                       ),
                       ListTile(
                         leading: const Icon(Icons.explore_outlined),
@@ -297,7 +290,7 @@ class _ProfilePageState extends State<ProfilePage> {
           Center(
             child: Text(
               '东大一号通 v1.2.0\n'
-              '基于 Flutter · Material 3 · ${demoNews.length} 条真实资讯快照',
+              '${isApple ? 'iOS 设计' : 'Material 3'} · ${demoNews.length} 条真实资讯快照',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 11,
@@ -345,28 +338,49 @@ class _SeedDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: selected
-              ? Border.all(
-                  width: 3,
-                  color: Theme.of(context).colorScheme.onSurface,
-                )
-              : null,
-          boxShadow: selected
-              ? [BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 8)]
-              : null,
+    const names = {
+      0xFF3553A2: '东大蓝',
+      0xFF1E7A5A: '松绿',
+      0xFFB4345C: '玫红',
+      0xFF8C3FA8: '紫藤',
+      0xFF006874: '孔雀蓝',
+      0xFF7A5900: '赭金'
+    };
+    return Semantics(
+      label: '主题色：${names[color.toARGB32()]}',
+      selected: selected,
+      button: true,
+      child: SizedBox(
+        width: 48,
+        height: 48,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: Center(
+              child: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: selected
+                  ? Border.all(
+                      width: 3,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    )
+                  : null,
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                          color: color.withValues(alpha: 0.45), blurRadius: 8)
+                    ]
+                  : null,
+            ),
+            child: selected
+                ? const Icon(Icons.check, size: 18, color: Colors.white)
+                : null,
+          )),
         ),
-        child: selected
-            ? const Icon(Icons.check, size: 18, color: Colors.white)
-            : null,
       ),
     );
   }

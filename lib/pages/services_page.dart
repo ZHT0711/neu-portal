@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 
 import '../core/app_state.dart';
+import '../core/platform_style.dart';
 import '../core/links.dart';
 import '../core/tab_scroller.dart';
 import '../core/models.dart';
@@ -62,49 +64,18 @@ class _ServicesPageState extends State<ServicesPage> {
     final noLocalMatch = apps.isEmpty && sections.isEmpty;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('服务')),
+      appBar: const PageAppBar(title: '服务'),
       body: CustomScrollView(
         controller: _scroll,
-        physics: const BouncingScrollPhysics(),
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         slivers: [
           // ── 搜索框 ──
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
             sliver: SliverToBoxAdapter(
-              child: Material(
-                color: scheme.brightness == Brightness.light
-                    ? Colors.white
-                    : scheme.surfaceContainerLow,
-                borderRadius: BorderRadius.circular(20),
-                elevation: scheme.brightness == Brightness.light ? 2 : 0,
-                shadowColor: scheme.primary.withValues(alpha: 0.12),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(20),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 4),
-                    child: TextField(
-                      controller: _queryCtrl,
-                      onChanged: (v) => setState(() => _query = v),
-                      decoration: InputDecoration(
-                        hintText: '搜索应用、服务，如「成绩」「缴费」',
-                        prefixIcon: Icon(Icons.search,
-                            size: 20, color: scheme.primary),
-                        suffixIcon: q.isEmpty
-                            ? null
-                            : IconButton(
-                                icon: const Icon(Icons.close, size: 18),
-                                onPressed: () {
-                                  _queryCtrl.clear();
-                                  setState(() => _query = '');
-                                },
-                              ),
-                        border: InputBorder.none,
-                        filled: false,
-                      ),
-                    ),
-                  ),
-                ),
+              child: AdaptiveSearchField(
+                controller: _queryCtrl,
+                onChanged: (value) => setState(() => _query = value),
               ),
             ),
           ),
@@ -144,12 +115,12 @@ class _ServicesPageState extends State<ServicesPage> {
 
           // ── 本地无匹配提示 ──
           if (noLocalMatch)
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            const SliverPadding(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
               sliver: SliverToBoxAdapter(
                 child: Panel(
-                  child: const EmptyHint('本地没有匹配的应用，试试上方智慧搜索',
-                      icon: Icons.search_off),
+                  child:
+                      EmptyHint('本地没有匹配的应用，试试上方智慧搜索', icon: Icons.search_off),
                 ),
               ),
             ),
@@ -184,7 +155,8 @@ class _ServicesPageState extends State<ServicesPage> {
                       padding: EdgeInsets.zero,
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: cols,
-                        childAspectRatio: 0.94,
+                        mainAxisExtent:
+                            88 + MediaQuery.textScalerOf(ctx).scale(24),
                       ),
                       itemCount: apps.length,
                       itemBuilder: (context, i) {
@@ -222,7 +194,8 @@ class _ServicesPageState extends State<ServicesPage> {
                       padding: EdgeInsets.zero,
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: cols2,
-                        mainAxisExtent: 46,
+                        mainAxisExtent:
+                            52 + MediaQuery.textScalerOf(ctx2).scale(12),
                         crossAxisSpacing: 8,
                         mainAxisSpacing: 8,
                       ),
@@ -234,8 +207,7 @@ class _ServicesPageState extends State<ServicesPage> {
                               openPortalLink(context, e.url, title: e.name),
                           borderRadius: BorderRadius.circular(13),
                           child: Container(
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 12),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
                             decoration: BoxDecoration(
                               color: scheme.surfaceContainerHighest
                                   .withValues(alpha: 0.45),
@@ -322,7 +294,7 @@ class _HotSearchRow extends StatelessWidget {
           ),
         ),
         SizedBox(
-          height: 36,
+          height: 28 + MediaQuery.textScalerOf(context).scale(24),
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: hots.length,
@@ -333,16 +305,16 @@ class _HotSearchRow extends StatelessWidget {
                 onTap: () => onPick(kw),
                 borderRadius: BorderRadius.circular(99),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 13, vertical: 7),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
                   decoration: BoxDecoration(
                     color: i == 0
                         ? scheme.tertiaryContainer.withValues(alpha: 0.7)
-                        : scheme.surfaceContainerHighest
-                            .withValues(alpha: 0.6),
+                        : scheme.surfaceContainerHighest.withValues(alpha: 0.6),
                     borderRadius: BorderRadius.circular(99),
                   ),
                   child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       if (i < 3)
@@ -357,8 +329,8 @@ class _HotSearchRow extends StatelessWidget {
                           ),
                         ),
                       Text(kw,
-                          style:
-                              TextStyle(fontSize: 12.5, color: scheme.onSurface)),
+                          style: TextStyle(
+                              fontSize: 12.5, color: scheme.onSurface)),
                     ],
                   ),
                 ),
@@ -405,13 +377,12 @@ class _SmartSearchCard extends StatelessWidget {
             ],
           ),
         ),
-        subtitle: const Text('全校系统 · 通知 · 服务一键直达',
-            style: TextStyle(fontSize: 11.5)),
+        subtitle:
+            const Text('全校系统 · 通知 · 服务一键直达', style: TextStyle(fontSize: 11.5)),
         trailing: const Icon(Icons.chevron_right),
         onTap: () => AppLinks.open(
           context,
-          'https://so.neu.edu.cn/#/accessLogin?searchWord=' +
-              Uri.encodeComponent(keyword),
+          'https://so.neu.edu.cn/#/accessLogin?searchWord=${Uri.encodeComponent(keyword)}',
           title: '智慧搜索',
         ),
       ),
@@ -435,36 +406,33 @@ class _CategoryChips extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return SizedBox(
-      height: 42,
+      height: 40 + MediaQuery.textScalerOf(context).scale(20),
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         scrollDirection: Axis.horizontal,
         itemCount: categories.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
-          final c = categories[i];
-          final on = c == selected;
-          return InkWell(
-            onTap: () => onSelected(c),
-            borderRadius: BorderRadius.circular(99),
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-              decoration: BoxDecoration(
-                color: on
-                    ? scheme.primary
-                    : scheme.surfaceContainerHighest.withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(99),
-              ),
-              child: Text(
-                c,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: on ? FontWeight.w700 : FontWeight.w500,
-                  color: on ? scheme.onPrimary : scheme.onSurfaceVariant,
-                ),
-              ),
-            ),
+          final category = categories[i];
+          final active = category == selected;
+          if (isApple) {
+            return Semantics(
+                selected: active,
+                child: CupertinoButton(
+                  color: active ? scheme.primary : scheme.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(12),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  onPressed: () => onSelected(category),
+                  child: Text(category,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: active ? scheme.onPrimary : scheme.onSurface)),
+                ));
+          }
+          return ChoiceChip(
+            selected: active,
+            label: Text(category),
+            showCheckmark: false,
+            onSelected: (_) => onSelected(category),
           );
         },
       ),

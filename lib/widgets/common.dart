@@ -1,10 +1,14 @@
 /// 通用小组件（v2：分组面板 / 入场动画 / 数字动画 / 统一磁贴）。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/links.dart';
 import '../core/theme.dart';
+import '../core/platform_style.dart';
+import 'package:flutter/cupertino.dart';
 
 /// 页面分区标题。
 class SectionHeader extends StatelessWidget {
@@ -21,44 +25,25 @@ class SectionHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(6, 24, 6, 12),
       child: Row(
         children: [
-          Container(
-            width: 4,
-            height: 17,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [scheme.primary, scheme.tertiary],
-              ),
-              borderRadius: BorderRadius.circular(2),
-            ),
+          Expanded(
+            child: Semantics(
+                header: true,
+                child: Text(title,
+                    style: Theme.of(context).textTheme.titleMedium)),
           ),
-          const SizedBox(width: 9),
-          Text(
-            title,
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.w800, letterSpacing: 0.2),
-          ),
-          const Spacer(),
           if (action != null)
-            GestureDetector(
-              onTap: onAction,
-              behavior: HitTestBehavior.opaque,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                child: Row(
-                  children: [
-                    Text(action!,
-                        style: TextStyle(
-                            fontSize: 12.5, color: scheme.onSurfaceVariant)),
-                    Icon(Icons.chevron_right,
-                        size: 16, color: scheme.onSurfaceVariant),
-                  ],
-                ),
-              ),
-            ),
+            if (isApple)
+              CupertinoButton(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                onPressed: onAction,
+                child: Text(action!,
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelLarge
+                        ?.copyWith(color: scheme.primary)),
+              )
+            else
+              TextButton(onPressed: onAction, child: Text(action!)),
         ],
       ),
     );
@@ -76,10 +61,15 @@ class Panel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final panelColor = color ?? scheme.surfaceContainerLow;
+    final panelColor = color ??
+        (isApple
+            ? IosColors.secondaryGroupedBackground(
+                scheme.brightness == Brightness.dark)
+            : scheme.surfaceContainerLow);
     return Material(
       color: panelColor,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Ds.rLg)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(isApple ? Ds.rMd : Ds.rLg)),
       clipBehavior: Clip.antiAlias,
       child: padding == null ? child : Padding(padding: padding!, child: child),
     );
@@ -100,16 +90,32 @@ class StaggerIn extends StatefulWidget {
 class _StaggerInState extends State<StaggerIn> {
   bool _shown = false;
 
+  Timer? _timer;
+  bool _scheduled = false;
+
   @override
-  void initState() {
-    super.initState();
-    Future.delayed(Duration(milliseconds: 60 * widget.index.clamp(0, 8)), () {
-      if (mounted) setState(() => _shown = true);
-    });
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _timer?.cancel();
+      _shown = true;
+    } else if (!_scheduled && !_shown) {
+      _scheduled = true;
+      _timer = Timer(Duration(milliseconds: 60 * widget.index.clamp(0, 8)), () {
+        if (mounted) setState(() => _shown = true);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (MediaQuery.disableAnimationsOf(context)) return widget.child;
     return AnimatedSlide(
       offset: _shown ? Offset.zero : const Offset(0, 0.03),
       duration: const Duration(milliseconds: 320),
@@ -139,10 +145,11 @@ class CountUpText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final v = double.tryParse(text);
+    final v =
+        MediaQuery.disableAnimationsOf(context) ? null : double.tryParse(text);
     if (v == null) {
-      return RichText(
-        text: TextSpan(
+      return Text.rich(
+        TextSpan(
           children: [
             TextSpan(text: text, style: style),
             if (suffix.isNotEmpty)
@@ -161,11 +168,9 @@ class CountUpText extends StatelessWidget {
       duration: const Duration(milliseconds: 900),
       curve: Curves.easeOutCubic,
       builder: (context, val, _) {
-        final shown = isInt
-            ? val.round().toString()
-            : val.toStringAsFixed(1);
-        return RichText(
-          text: TextSpan(
+        final shown = isInt ? val.round().toString() : val.toStringAsFixed(1);
+        return Text.rich(
+          TextSpan(
             children: [
               TextSpan(text: shown, style: style),
               if (suffix.isNotEmpty)
@@ -199,7 +204,7 @@ class AppTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tone = NeuColors.avatarColor(name);
+    final tone = NeuColors.adaptiveTone(context, NeuColors.avatarColor(name));
     final size = dense ? 42.0 : 48.0;
     final url = iconUrl;
     Widget icon;
@@ -219,26 +224,31 @@ class AppTile extends StatelessWidget {
     } else {
       icon = _letterBox(tone, size);
     }
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          icon,
-          const SizedBox(height: 7),
-          Text(
-            name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: dense ? 11 : 12,
-              fontWeight: FontWeight.w500,
-              color: Theme.of(context).colorScheme.onSurface,
+    return Semantics(
+      label: name,
+      button: onTap != null,
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            icon,
+            const SizedBox(height: 7),
+            Text(
+              name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: dense ? 12 : 13,
+                fontWeight: FontWeight.w500,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -301,8 +311,11 @@ class EmptyHint extends StatelessWidget {
             child: Icon(icon, size: 26, color: scheme.outline),
           ),
           const SizedBox(height: 12),
-          Text(text, style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: scheme.onSurfaceVariant)),
+          Text(text,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: scheme.onSurfaceVariant)),
         ],
       ),
     );

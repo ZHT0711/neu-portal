@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/app_state.dart';
+import '../core/platform_style.dart';
 import '../core/models.dart';
 import '../core/tab_scroller.dart';
 import '../core/theme.dart';
@@ -36,7 +37,7 @@ class _GradesPageState extends State<GradesPage> {
     final sems = s.semesters;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('成绩')),
+      appBar: const PageAppBar(title: '成绩'),
       body: ListView(
         controller: _scroll,
         padding: const EdgeInsets.fromLTRB(Ds.gutter, 4, Ds.gutter, 34),
@@ -58,13 +59,9 @@ class _GradesPageState extends State<GradesPage> {
                     const Spacer(),
                     Text(
                       '${sems[si].courses.length} 门课',
-                      style: Theme.of(context)
-                          .textTheme
-                          .labelMedium
-                          ?.copyWith(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant),
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color:
+                              Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                   ],
                 ),
@@ -97,8 +94,7 @@ class _DemoNote extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.info_outline,
-              size: 16, color: scheme.onTertiaryContainer),
+          Icon(Icons.info_outline, size: 16, color: scheme.onTertiaryContainer),
           const SizedBox(width: 9),
           Expanded(
             child: Text(
@@ -213,8 +209,10 @@ class _GradeRow extends StatelessWidget {
                     children: [
                       Text(
                         '${course.category} · ${course.credit.toStringAsFixed(1)} 学分',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: scheme.onSurfaceVariant),
+                        style: Theme.of(context)
+                            .textTheme
+                            .labelSmall
+                            ?.copyWith(color: scheme.onSurfaceVariant),
                       ),
                       const SizedBox(width: 10),
                       Expanded(

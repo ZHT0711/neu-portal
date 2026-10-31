@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/app_state.dart';
+import '../core/platform_style.dart';
+import 'package:flutter/cupertino.dart';
 import '../core/demo_data.dart';
 import '../core/models.dart';
 import '../core/semester.dart';
@@ -87,9 +89,18 @@ class _SchedulePageState extends State<SchedulePage> {
     });
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('课表'),
+      appBar: PageAppBar(
+        title: '课表',
         actions: [
+          if (isApple)
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              onPressed: () => _showEventForm(context),
+              child: Semantics(
+                  label: '添加日程',
+                  button: true,
+                  child: const Icon(CupertinoIcons.add)),
+            ),
           if (_fetching)
             const Padding(
               padding: EdgeInsets.only(right: 16),
@@ -108,11 +119,13 @@ class _SchedulePageState extends State<SchedulePage> {
             ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showEventForm(context),
-        icon: const Icon(Icons.add),
-        label: const Text('添加日程'),
-      ),
+      floatingActionButton: isApple
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => _showEventForm(context),
+              icon: const Icon(Icons.add),
+              label: const Text('添加日程'),
+            ),
       body: Column(
         children: [
           _WeekSwitcher(
@@ -143,16 +156,35 @@ class _SchedulePageState extends State<SchedulePage> {
             },
           ),
           _SemesterBanner(week: week),
+          if (MediaQuery.sizeOf(context).width <
+              680 * MediaQuery.textScalerOf(context).scale(1))
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text('左右滑动查看整周 · 点按课程查看详情',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: scheme.onSurfaceVariant)),
+            ),
           Expanded(
             child: SingleChildScrollView(
               controller: _scroll,
-              child: _Grid(
-                days: days,
-                weekStart: _weekStart,
-                today: today,
-                isCurrentWeek: _isCurrent,
-                onEventTap: (occ) => _showDetail(context, occ),
-              ),
+              child: LayoutBuilder(
+                  builder: (context, constraints) => SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: SizedBox(
+                          width: constraints.maxWidth.clamp(
+                              680 * MediaQuery.textScalerOf(context).scale(1),
+                              double.infinity),
+                          child: _Grid(
+                            days: days,
+                            weekStart: _weekStart,
+                            today: today,
+                            isCurrentWeek: _isCurrent,
+                            onEventTap: (occ) => _showDetail(context, occ),
+                          ),
+                        ),
+                      )),
             ),
           ),
         ],
@@ -164,35 +196,24 @@ class _SchedulePageState extends State<SchedulePage> {
   Future<void> _showEventForm(BuildContext context,
       {DateTime? initialDate}) async {
     final s = AppScope.of(context);
-    final nameCtrl = TextEditingController();
-    final roomCtrl = TextEditingController();
     String kind = 'custom';
     DateTime date = initialDate ?? DateTime.now();
     TimeOfDay start = const TimeOfDay(hour: 19, minute: 0);
     TimeOfDay end = const TimeOfDay(hour: 20, minute: 0);
 
     Future<void> pickDate() async {
-      final d = await showDatePicker(
-        context: context,
-        initialDate: date,
-        firstDate: DateTime(2025, 9, 1),
-        lastDate: DateTime(2028, 8, 31),
-        helpText: '选择日期',
-      );
+      final d = await pickPlatformDate(context, date);
       if (d != null) date = d;
     }
 
     Future<void> pickTime(bool isStart) async {
-      final t = await showTimePicker(
-        context: context,
-        initialTime: isStart ? start : end,
-        helpText: isStart ? '开始时间' : '结束时间',
-      );
+      final t = await pickPlatformTime(context, isStart ? start : end);
       if (t == null) return;
       if (isStart) {
         start = t;
         if (t.hour * 60 + t.minute >= end.hour * 60 + end.minute) {
-          end = TimeOfDay(hour: t.hour, minute: (t.minute + 45) % 60);
+          final minutes = (t.hour * 60 + t.minute + 45).clamp(0, 1439);
+          end = TimeOfDay(hour: minutes ~/ 60, minute: minutes % 60);
         }
       } else {
         end = t;
@@ -202,160 +223,163 @@ class _SchedulePageState extends State<SchedulePage> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) => Padding(
-          padding: EdgeInsets.fromLTRB(
-              22, 0, 22, 22 + MediaQuery.of(ctx).viewInsets.bottom),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('添加日程',
-                  style: Theme.of(ctx)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w800)),
-              const SizedBox(height: 16),
-              TextField(
-                controller: nameCtrl,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.edit_note),
-                  labelText: '标题',
-                  hintText: '如：高数期中考试、实验室例会',
-                ),
-              ),
-              const SizedBox(height: 12),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'custom', label: Text('日程')),
-                  ButtonSegment(value: 'exam', label: Text('考试')),
-                ],
-                selected: {kind},
-                onSelectionChanged: (sel) => setSheet(() => kind = sel.first),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: _PickTile(
-                      icon: Icons.event,
-                      label: '日期',
-                      value: '${date.month}/${date.day}',
-                      onTap: () async {
-                        await pickDate();
-                        setSheet(() {});
-                      },
+      showDragHandle: !isApple,
+      useSafeArea: true,
+      builder: (ctx) => _EventFormControllers(
+          builder: (ctx, nameCtrl, roomCtrl) => StatefulBuilder(
+                builder: (ctx, setSheet) => SingleChildScrollView(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(22, isApple ? 16 : 0, 22,
+                        22 + MediaQuery.of(ctx).viewInsets.bottom),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(children: [
+                          Expanded(
+                              child: Text('添加日程',
+                                  style: Theme.of(ctx).textTheme.titleLarge)),
+                          if (isApple)
+                            CupertinoButton(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 8),
+                                onPressed: () => Navigator.of(ctx).pop(),
+                                child: const Text('取消')),
+                        ]),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: nameCtrl,
+                          autofocus: true,
+                          decoration: const InputDecoration(
+                            prefixIcon: Icon(Icons.edit_note),
+                            labelText: '标题',
+                            hintText: '如：高数期中考试、实验室例会',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        AdaptiveSegments<String>(
+                          values: const {'custom': '日程', 'exam': '考试'},
+                          selected: kind,
+                          onChanged: (value) => setSheet(() => kind = value),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _PickTile(
+                                icon: Icons.event,
+                                label: '日期',
+                                value: '${date.month}/${date.day}',
+                                onTap: () async {
+                                  await pickDate();
+                                  if (ctx.mounted) setSheet(() {});
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _PickTile(
+                                icon: Icons.schedule,
+                                label: '开始',
+                                value: start.format(ctx),
+                                onTap: () async {
+                                  await pickTime(true);
+                                  if (ctx.mounted) setSheet(() {});
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _PickTile(
+                                icon: Icons.schedule,
+                                label: '结束',
+                                value: end.format(ctx),
+                                onTap: () async {
+                                  await pickTime(false);
+                                  if (ctx.mounted) setSheet(() {});
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: roomCtrl,
+                          decoration: const InputDecoration(
+                            prefixIcon: Icon(Icons.place),
+                            labelText: '地点（可选）',
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        AdaptiveFilledButton(
+                          onPressed: () {
+                            final name = nameCtrl.text.trim();
+                            final sm = start.hour * 60 + start.minute;
+                            final em = end.hour * 60 + end.minute;
+                            if (name.isEmpty) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                  const SnackBar(content: Text('请填写标题')));
+                              return;
+                            }
+                            if (em <= sm) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                  const SnackBar(content: Text('结束时间要晚于开始时间')));
+                              return;
+                            }
+                            HapticFeedback.lightImpact();
+                            s.addEvent(PlannerEvent(
+                              id: 'evt-${DateTime.now().millisecondsSinceEpoch}',
+                              name: name,
+                              dateIso: Semester.iso(date),
+                              startMinutes: sm,
+                              endMinutes: em,
+                              room: roomCtrl.text.trim(),
+                              kind: kind,
+                            ));
+                            Navigator.of(ctx).pop();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('已添加到本机课表，首页同步可见')));
+                          },
+                          child: const Text('保存到本机课表'),
+                        ),
+                        if (s.mode == SessionMode.live) ...[
+                          const SizedBox(height: 10),
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.of(ctx).pop();
+                              Navigator.of(context).push(MaterialPageRoute(
+                                builder: (_) => const WebViewPage(
+                                  title: '门户日程（官方）',
+                                  url:
+                                      'https://personal.neu.edu.cn/portal/pages/schedulesite/site/home?from=neu',
+                                ),
+                              ));
+                            },
+                            icon: const Icon(Icons.sync_alt, size: 18),
+                            label: const Text('在门户日程中添加（官方·含提醒/重复）'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 6),
+                        Text(
+                          s.mode == SessionMode.live
+                              ? '本机日程即时显示在课表与首页；需官方提醒/重复请用门户日程'
+                              : '离线模式下日程仅保存在本机；登录门户后可用官方日程同步',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              fontSize: 11,
+                              color:
+                                  Theme.of(ctx).colorScheme.onSurfaceVariant),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _PickTile(
-                      icon: Icons.schedule,
-                      label: '开始',
-                      value: start.format(ctx),
-                      onTap: () async {
-                        await pickTime(true);
-                        setSheet(() {});
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _PickTile(
-                      icon: Icons.schedule,
-                      label: '结束',
-                      value: end.format(ctx),
-                      onTap: () async {
-                        await pickTime(false);
-                        setSheet(() {});
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: roomCtrl,
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.place),
-                  labelText: '地点（可选）',
                 ),
-              ),
-              const SizedBox(height: 18),
-              FilledButton.icon(
-                onPressed: () {
-                  final name = nameCtrl.text.trim();
-                  final sm = start.hour * 60 + start.minute;
-                  final em = end.hour * 60 + end.minute;
-                  if (name.isEmpty) {
-                    ScaffoldMessenger.of(ctx).showSnackBar(
-                        const SnackBar(content: Text('请填写标题')));
-                    return;
-                  }
-                  if (em <= sm) {
-                    ScaffoldMessenger.of(ctx).showSnackBar(
-                        const SnackBar(content: Text('结束时间要晚于开始时间')));
-                    return;
-                  }
-                  HapticFeedback.lightImpact();
-                  s.addEvent(PlannerEvent(
-                    id: 'evt-${DateTime.now().millisecondsSinceEpoch}',
-                    name: name,
-                    dateIso: Semester.iso(date),
-                    startMinutes: sm,
-                    endMinutes: em,
-                    room: roomCtrl.text.trim(),
-                    kind: kind,
-                  ));
-                  Navigator.of(ctx).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('已添加到本机课表，首页同步可见')));
-                },
-                icon: const Icon(Icons.check),
-                label: const Text('保存到本机课表'),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                ),
-              ),
-              if (s.mode == SessionMode.live) ...[
-                const SizedBox(height: 10),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.of(ctx).pop();
-                    Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => const WebViewPage(
-                        title: '门户日程（官方）',
-                        url:
-                            'https://personal.neu.edu.cn/portal/pages/schedulesite/site/home?from=neu',
-                      ),
-                    ));
-                  },
-                  icon: const Icon(Icons.sync_alt, size: 18),
-                  label: const Text('在门户日程中添加（官方·含提醒/重复）'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 6),
-              Text(
-                s.mode == SessionMode.live
-                    ? '本机日程即时显示在课表与首页；需官方提醒/重复请用门户日程'
-                    : '离线模式下日程仅保存在本机；登录门户后可用官方日程同步',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    fontSize: 11,
-                    color: Theme.of(ctx).colorScheme.onSurfaceVariant),
-              ),
-            ],
-          ),
-        ),
-      ),
+              )),
     );
-    nameCtrl.dispose();
-    roomCtrl.dispose();
   }
 
   // ── 日程详情 ─────────────────────────────────────────────
@@ -370,10 +394,11 @@ class _SchedulePageState extends State<SchedulePage> {
 
     showModalBottomSheet(
       context: context,
-      showDragHandle: true,
+      showDragHandle: !isApple,
+      useSafeArea: true,
       builder: (ctx) {
         final scheme = Theme.of(ctx).colorScheme;
-        final tone = NeuColors.slotTone(slot);
+        final tone = NeuColors.adaptiveTone(context, NeuColors.slotTone(slot));
         final weekText = slot.weekStart > 0 && slot.weekEnd < 99
             ? (slot.weekStart == slot.weekEnd
                 ? '第${slot.weekStart}周'
@@ -425,17 +450,14 @@ class _SchedulePageState extends State<SchedulePage> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                _detailRow(
-                    ctx,
-                    Icons.schedule,
-                    '节次',
+                _detailRow(ctx, Icons.schedule, '节次',
                     '第$sp-${ep == sp ? sp : ep}节（${Semester.hm(slot.startMinutes)}–${Semester.hm(slot.endMinutes)}）'),
                 if (weekText != null)
                   _detailRow(ctx, Icons.date_range, '周次', weekText),
                 _detailRow(ctx, Icons.place, '地点', slot.room),
                 if (event?.note.isNotEmpty == true)
-                  _detailRow(ctx, Icons.sticky_note_2_outlined, '备注',
-                      event!.note),
+                  _detailRow(
+                      ctx, Icons.sticky_note_2_outlined, '备注', event!.note),
                 const SizedBox(height: 8),
                 if (deletable && event != null)
                   OutlinedButton.icon(
@@ -457,8 +479,8 @@ class _SchedulePageState extends State<SchedulePage> {
                 else if (slot.kind == 'course')
                   Text(
                     '课程安排来自门户课表',
-                    style: TextStyle(
-                        fontSize: 11, color: scheme.onSurfaceVariant),
+                    style:
+                        TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
                   ),
               ],
             ),
@@ -492,8 +514,7 @@ class _SchedulePageState extends State<SchedulePage> {
           SizedBox(
             width: 40,
             child: Text(k,
-                style:
-                    TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
           ),
           Expanded(
             child: Text(v,
@@ -806,8 +827,8 @@ class _DayColumn extends StatelessWidget {
             decoration: isToday
                 ? BoxDecoration(
                     color: scheme.primary.withValues(alpha: 0.1),
-                    borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(20)),
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(20)),
                   )
                 : null,
             child: Column(
@@ -827,8 +848,8 @@ class _DayColumn extends StatelessWidget {
                     if (holiday) ...[
                       const SizedBox(width: 3),
                       Text('休',
-                          style: TextStyle(
-                              fontSize: 8.5, color: scheme.tertiary)),
+                          style:
+                              TextStyle(fontSize: 8.5, color: scheme.tertiary)),
                     ],
                   ],
                 ),
@@ -891,7 +912,7 @@ class _DayColumn extends StatelessWidget {
 
   Widget _buildBlock(BuildContext context, CourseOccurrence occ) {
     final slot = occ.slot;
-    final tone = NeuColors.slotTone(slot);
+    final tone = NeuColors.adaptiveTone(context, NeuColors.slotTone(slot));
     var sp = Semester.startPeriodOf(slot.startMinutes);
     var ep = Semester.endPeriodOf(slot.endMinutes);
     if (ep < sp) ep = sp;
@@ -1036,4 +1057,27 @@ class _PickTile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Own the fields until the sheet's exit animation finishes and it unmounts.
+class _EventFormControllers extends StatefulWidget {
+  const _EventFormControllers({required this.builder});
+  final Widget Function(
+      BuildContext, TextEditingController, TextEditingController) builder;
+  @override
+  State<_EventFormControllers> createState() => _EventFormControllersState();
+}
+
+class _EventFormControllersState extends State<_EventFormControllers> {
+  final _name = TextEditingController();
+  final _room = TextEditingController();
+  @override
+  void dispose() {
+    _name.dispose();
+    _room.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _name, _room);
 }

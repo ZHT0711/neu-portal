@@ -1,144 +1,204 @@
-/// 平台自适应样式层：iOS 遵循 HIG（含液态玻璃材质），Android 遵循 MD3。
+/// Shared platform decisions and adaptive navigation chrome.
 library;
 
-import 'dart:io' show Platform;
-import 'dart:ui';
-
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// 是否走 HIG 风格层（液态玻璃面向 iPhone；macOS 桌面保留 MD3）。
-bool get isApple => !kIsWeb && Platform.isIOS;
+// Also follows Flutter's platform override, so both designs can be tested.
+bool get isApple => defaultTargetPlatform == TargetPlatform.iOS;
 
-/// iOS 系统色（HIG 语义色，深浅色各自对应）。
 class IosColors {
   IosColors._();
-
   static Color systemGroupedBackground(bool dark) =>
       dark ? const Color(0xFF000000) : const Color(0xFFF2F2F7);
   static Color secondaryGroupedBackground(bool dark) =>
       dark ? const Color(0xFF1C1C1E) : const Color(0xFFFFFFFF);
   static Color separator(bool dark) =>
       dark ? const Color(0xFF38383A) : const Color(0xFFC6C6C8);
-  static Color label(bool dark) =>
-      dark ? const Color(0xFFFFFFFF) : const Color(0xFF000000);
+  static Color label(bool dark) => dark ? Colors.white : Colors.black;
   static Color secondaryLabel(bool dark) =>
       dark ? const Color(0x99EBEBF5) : const Color(0x993C3C43);
 }
 
-/// 液态玻璃容器：背景高斯模糊 + 半透明材质层（iOS 26 Liquid Glass 观感）。
-class GlassContainer extends StatelessWidget {
-  const GlassContainer({
-    super.key,
-    required this.child,
-    this.borderRadius = BorderRadius.zero,
-    this.dark = false,
-    this.blur = 28,
-  });
-
-  final Widget child;
-  final BorderRadius borderRadius;
-  final bool dark;
-  final double blur;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: borderRadius,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-        child: Container(
-          decoration: BoxDecoration(
-            // 半透明材质层：亮色白雾 / 暗色深玻璃
-            color: dark
-                ? const Color(0xCC1C1C1E)
-                : Colors.white.withValues(alpha: 0.68),
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-}
-
-/// 页面顶栏：iOS 用玻璃材质 + 居中标题（HIG），Android 走 MD3 主题。
 class PageAppBar extends StatelessWidget implements PreferredSizeWidget {
-  const PageAppBar({super.key, this.title, this.actions = const []});
-
-  final String? title;
+  const PageAppBar({super.key, required this.title, this.actions = const []});
+  final String title;
   final List<Widget> actions;
 
   @override
-  Size get preferredSize =>
-      const Size.fromHeight(kToolbarHeight);
+  Size get preferredSize => Size.fromHeight(isApple ? 44 : 64);
 
   @override
   Widget build(BuildContext context) {
+    if (!isApple) return AppBar(title: Text(title), actions: actions);
     final dark = Theme.of(context).brightness == Brightness.dark;
-    if (isApple) {
-      final scheme = Theme.of(context).colorScheme;
-      return AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        centerTitle: true,
-        title: Text(title ?? '',
-            style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w600,
-                color: IosColors.label(dark))),
-        actions: actions,
-        flexibleSpace: GlassContainer(
-          dark: dark,
-          child: const SizedBox.expand(),
-        ),
-      );
-    }
-    return AppBar(
-      title: title == null ? null : Text(title!),
-      actions: actions,
+    return CupertinoNavigationBar(
+      middle: Text(title),
+      backgroundColor: IosColors.secondaryGroupedBackground(dark),
+      border: Border(
+          bottom: BorderSide(color: IosColors.separator(dark), width: 0)),
+      // Pages share one Navigator; avoid duplicate transition tags in tab views.
+      transitionBetweenRoutes: false,
+      trailing: actions.isEmpty
+          ? null
+          : Row(mainAxisSize: MainAxisSize.min, children: actions),
     );
   }
 }
 
-/// 底栏图标文案（iOS 标签栏样式：SF 尺寸，激活色 = 主题色）。
-class TabBarItem extends StatelessWidget {
-  const TabBarItem({
-    super.key,
-    required this.icon,
-    required this.activeIcon,
-    required this.label,
-    required this.active,
-    required this.color,
-  });
-
-  final IconData icon;
-  final IconData activeIcon;
-  final String label;
-  final bool active;
-  final Color color;
+class AdaptiveSearchField extends StatelessWidget {
+  const AdaptiveSearchField(
+      {super.key, required this.controller, required this.onChanged});
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(active ? activeIcon : icon, size: 24, color: color),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-            color: color,
+    if (isApple) {
+      return CupertinoSearchTextField(
+        controller: controller,
+        placeholder: '搜索应用与服务',
+        onChanged: onChanged,
+        onSuffixTap: () {
+          controller.clear();
+          onChanged('');
+        },
+      );
+    }
+    return SearchBar(
+      controller: controller,
+      hintText: '搜索应用与服务',
+      leading: const Icon(Icons.search),
+      elevation: const WidgetStatePropertyAll(0),
+      onChanged: onChanged,
+      trailing: [
+        if (controller.text.isNotEmpty)
+          IconButton(
+            tooltip: '清除搜索',
+            icon: const Icon(Icons.close),
+            onPressed: () {
+              controller.clear();
+              onChanged('');
+            },
           ),
-        ),
       ],
     );
   }
 }
 
-/// 触感反馈。
-Future<void> hapticLight() => HapticFeedback.lightImpact();
+class AdaptiveSegments<T extends Object> extends StatelessWidget {
+  const AdaptiveSegments(
+      {super.key,
+      required this.values,
+      required this.selected,
+      required this.onChanged});
+  final Map<T, String> values;
+  final T selected;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isApple) {
+      return CupertinoSlidingSegmentedControl<T>(
+        groupValue: selected,
+        children: {
+          for (final e in values.entries)
+            e.key: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Text(e.value),
+            )
+        },
+        onValueChanged: (value) {
+          if (value != null) onChanged(value);
+        },
+      );
+    }
+    return SegmentedButton<T>(
+      segments: [
+        for (final e in values.entries)
+          ButtonSegment(value: e.key, label: Text(e.value))
+      ],
+      selected: {selected},
+      showSelectedIcon: false,
+      onSelectionChanged: (value) => onChanged(value.first),
+    );
+  }
+}
+
 Future<void> hapticSelect() => HapticFeedback.selectionClick();
+
+/// A primary action with the platform's feedback and shape.
+class AdaptiveFilledButton extends StatelessWidget {
+  const AdaptiveFilledButton(
+      {super.key, required this.onPressed, required this.child});
+  final VoidCallback? onPressed;
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => isApple
+      ? CupertinoButton.filled(onPressed: onPressed, child: child)
+      : FilledButton(onPressed: onPressed, child: child);
+}
+
+Future<DateTime?> pickPlatformDate(BuildContext context, DateTime initial) {
+  if (!isApple) {
+    return showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2025, 9, 1),
+      lastDate: DateTime(2028, 8, 31),
+      helpText: '选择日期',
+    );
+  }
+  return _cupertinoPicker(context, initial, CupertinoDatePickerMode.date);
+}
+
+Future<TimeOfDay?> pickPlatformTime(
+    BuildContext context, TimeOfDay initial) async {
+  if (!isApple) {
+    return showTimePicker(context: context, initialTime: initial);
+  }
+  final date = await _cupertinoPicker(
+      context,
+      DateTime(2026, 1, 1, initial.hour, initial.minute),
+      CupertinoDatePickerMode.time);
+  return date == null ? null : TimeOfDay.fromDateTime(date);
+}
+
+Future<DateTime?> _cupertinoPicker(
+    BuildContext context, DateTime initial, CupertinoDatePickerMode mode) {
+  var value = initial;
+  FocusScope.of(context).unfocus();
+  return showCupertinoModalPopup<DateTime>(
+    context: context,
+    builder: (ctx) => Container(
+      color: CupertinoColors.systemBackground.resolveFrom(ctx),
+      child: SafeArea(
+          top: false,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              CupertinoButton(
+                  onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+              CupertinoButton(
+                  onPressed: () => Navigator.pop(ctx, value),
+                  child: const Text('完成')),
+            ]),
+            SizedBox(
+                height: 216,
+                child: CupertinoDatePicker(
+                  mode: mode,
+                  initialDateTime: initial,
+                  use24hFormat: true,
+                  minimumDate: mode == CupertinoDatePickerMode.date
+                      ? DateTime(2025, 9, 1)
+                      : null,
+                  maximumDate: mode == CupertinoDatePickerMode.date
+                      ? DateTime(2028, 8, 31)
+                      : null,
+                  onDateTimeChanged: (date) => value = date,
+                )),
+          ])),
+    ),
+  );
+}

@@ -26,3 +26,15 @@ abstract final class TabScroller {
     }
   }
 }
+
+/// Lets shortcuts select an existing tab and retain that tab's state.
+class PortalNavigation extends InheritedWidget {
+  const PortalNavigation(
+      {super.key, required this.select, required super.child});
+  final ValueChanged<int> select;
+  static PortalNavigation? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<PortalNavigation>();
+  @override
+  bool updateShouldNotify(PortalNavigation oldWidget) =>
+      select != oldWidget.select;
+}

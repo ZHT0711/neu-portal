@@ -10,6 +10,7 @@ library;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 
 import 'models.dart';
 import 'platform_style.dart' show IosColors;
@@ -23,9 +24,9 @@ abstract final class Ds {
   static const double cardPadV = 12; // 卡片内垂直
 
   // ── 圆角（MD3 形状比例）──
-  static const double rSm = 10; // 小组件（徽标、码块）
-  static const double rMd = 14; // 列表、按钮
-  static const double rLg = 18; // 卡片
+  static const double rSm = 8; // 小组件（徽标、码块）
+  static const double rMd = 12; // 列表、按钮
+  static const double rLg = 16; // 卡片
   static const double rXl = 28; // 大卡 / 英雄区
   static const double full = 999;
 }
@@ -50,6 +51,12 @@ class NeuColors {
     return coursePalette[(h + indexInDay) % coursePalette.length];
   }
 
+  static Color adaptiveTone(BuildContext context, Color tone) =>
+      Theme.of(context).brightness == Brightness.dark
+          ? ColorScheme.fromSeed(seedColor: tone, brightness: Brightness.dark)
+              .primary
+          : tone;
+
   static Color avatarColor(String seedText) =>
       coursePalette[seedText.hashCode.abs() % coursePalette.length];
 
@@ -67,92 +74,93 @@ class NeuColors {
 }
 
 class NeuTheme {
-  static ThemeData light(Color seed, {bool ios = false}) =>
-      _base(seed, Brightness.light, ios: ios);
-  static ThemeData dark(Color seed, {bool ios = false}) =>
-      _base(seed, Brightness.dark, ios: ios);
-
-  static TextTheme _text(ColorScheme s) {
-    final base = Typography.material2021();
-    final english = base.englishLike;
-    return english.apply(
-      bodyColor: s.onSurface,
-      displayColor: s.onSurface,
-      fontSizeFactor: 1,
-      fontSizeDelta: 0,
-    ).merge(const TextTheme(
-      // M3 字阶（移动端基线）
-      headlineSmall: TextStyle(
-          fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: -0.3),
-      titleLarge: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-      titleMedium: TextStyle(
-          fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: 0.1),
-      titleSmall: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-      bodyLarge: TextStyle(fontSize: 15, height: 1.4),
-      bodyMedium: TextStyle(fontSize: 14, height: 1.35),
-      bodySmall: TextStyle(fontSize: 12, height: 1.3),
-      labelLarge: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-      labelMedium: TextStyle(
-          fontSize: 11.5, fontWeight: FontWeight.w600, height: 1.2),
-      labelSmall: TextStyle(
-          fontSize: 10.5,
-          fontWeight: FontWeight.w500,
-          height: 1.2,
-          letterSpacing: 0.2),
-    ));
-  }
+  static ThemeData light(Color seed,
+          {bool ios = false, ColorScheme? dynamicScheme}) =>
+      _base(seed, Brightness.light, ios: ios, dynamicScheme: dynamicScheme);
+  static ThemeData dark(Color seed,
+          {bool ios = false, ColorScheme? dynamicScheme}) =>
+      _base(seed, Brightness.dark, ios: ios, dynamicScheme: dynamicScheme);
 
   static ThemeData _base(Color seed, Brightness brightness,
-      {bool ios = false}) {
-    final scheme = ColorScheme.fromSeed(seedColor: seed, brightness: brightness);
-    final isLight = brightness == Brightness.light;
-    final text = _text(scheme);
-
-    final scheme0 = ios
-        ? scheme.copyWith(
-            primary: const Color(0xFF3553A2), // HIG 强调色：品牌蓝原色
-            onPrimary: Colors.white,
-            primaryContainer: const Color(0xFFDDE3F5),
-            onPrimaryContainer: const Color(0xFF1B2A55),
-          )
-        : scheme;
-
-    // iOS（HIG）：系统分组背景 + 白卡 + 连续圆角 12；顶栏透明（玻璃由外壳绘制）
+      {bool ios = false, ColorScheme? dynamicScheme}) {
     final dark = brightness == Brightness.dark;
-    final surface = ios
-        ? IosColors.systemGroupedBackground(dark)
-        : scheme0.surface;
-    final cardColor = ios
-        ? IosColors.secondaryGroupedBackground(dark)
-        : scheme0.surfaceContainerLow;
+    final generated = dynamicScheme ??
+        ColorScheme.fromSeed(seedColor: seed, brightness: brightness);
+    final surface = IosColors.systemGroupedBackground(dark);
+    final cardColor = IosColors.secondaryGroupedBackground(dark);
+    final scheme = ios
+        ? generated.copyWith(
+            surface: surface,
+            surfaceContainerLow: cardColor,
+            surfaceContainer: cardColor,
+            surfaceContainerHigh:
+                dark ? const Color(0xFF2C2C2E) : const Color(0xFFE5E5EA),
+            onSurface: IosColors.label(dark),
+            onSurfaceVariant:
+                dark ? const Color(0xFFAEAEB2) : const Color(0xFF636366),
+            outlineVariant: IosColors.separator(dark),
+          )
+        : generated;
+    final text = ios
+        ? Typography.material2021()
+            .englishLike
+            .apply(
+              fontFamily: 'CupertinoSystemText',
+              bodyColor: scheme.onSurface,
+              displayColor: scheme.onSurface,
+            )
+            .merge(const TextTheme(
+              headlineLarge:
+                  TextStyle(fontSize: 34, fontWeight: FontWeight.w700),
+              headlineMedium:
+                  TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+              headlineSmall:
+                  TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+              titleLarge: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+              titleMedium: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+              bodyLarge: TextStyle(fontSize: 17),
+              bodyMedium: TextStyle(fontSize: 15),
+              bodySmall: TextStyle(fontSize: 13),
+              labelLarge: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+            ))
+        : Typography.material2021().englishLike.apply(
+              fontFamily: 'Roboto',
+              bodyColor: scheme.onSurface,
+              displayColor: scheme.onSurface,
+            );
     final radius = ios ? Ds.rMd : Ds.rLg;
 
     return ThemeData(
-      colorScheme: scheme0,
+      useMaterial3: true,
+      colorScheme: scheme,
+      cupertinoOverrideTheme: CupertinoThemeData(
+        brightness: brightness,
+        primaryColor: scheme.primary,
+        scaffoldBackgroundColor: ios ? surface : scheme.surface,
+        barBackgroundColor: ios ? cardColor : scheme.surface,
+      ),
       brightness: brightness,
       platform: ios ? TargetPlatform.iOS : TargetPlatform.android,
-      scaffoldBackgroundColor: surface,
-      splashFactory: kIsWeb ? NoSplash.splashFactory : InkSparkle.splashFactory,
+      scaffoldBackgroundColor: ios ? surface : scheme.surface,
+      splashFactory:
+          ios || kIsWeb ? NoSplash.splashFactory : InkSparkle.splashFactory,
+      materialTapTargetSize: MaterialTapTargetSize.padded,
+      visualDensity: VisualDensity.standard,
       textTheme: text,
       appBarTheme: AppBarTheme(
-        backgroundColor:
-            ios ? Colors.transparent : scheme.surface,
-        foregroundColor:
-            ios ? IosColors.label(isLight ? false : true) : scheme.onSurface,
+        backgroundColor: ios ? cardColor : scheme.surface,
+        foregroundColor: scheme.onSurface,
         elevation: 0,
-        scrolledUnderElevation: 0,
+        scrolledUnderElevation: ios ? 0 : 3,
+        surfaceTintColor: ios ? Colors.transparent : scheme.surfaceTint,
         centerTitle: ios,
-        titleTextStyle: ios
-            ? TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w600,
-                color: IosColors.label(isLight ? false : true))
-            : text.titleLarge,
+        titleTextStyle: ios ? text.titleMedium : text.titleLarge,
       ),
       cardTheme: CardThemeData(
         elevation: 0,
-        color: cardColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius)),
+        color: ios ? cardColor : scheme.surfaceContainerLow,
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius)),
         clipBehavior: Clip.antiAlias,
         margin: EdgeInsets.zero,
       ),
@@ -162,13 +170,16 @@ class NeuTheme {
         space: 1,
       ),
       navigationBarTheme: NavigationBarThemeData(
-        height: 72,
-        backgroundColor: Colors.transparent,
-        indicatorColor: scheme.primaryContainer,
-        iconTheme: WidgetStateProperty.resolveWith(
-            (st) => IconThemeData(color: scheme.onSurfaceVariant)),
+        height: 80,
+        backgroundColor: scheme.surfaceContainer,
+        indicatorColor: scheme.secondaryContainer,
+        iconTheme: WidgetStateProperty.resolveWith((st) => IconThemeData(
+            color: st.contains(WidgetState.selected)
+                ? scheme.onSecondaryContainer
+                : scheme.onSurfaceVariant)),
         labelTextStyle: WidgetStateProperty.resolveWith((st) => TextStyle(
               fontSize: 12,
+              color: scheme.onSurface,
               fontWeight: st.contains(WidgetState.selected)
                   ? FontWeight.w700
                   : FontWeight.w500,
@@ -176,16 +187,17 @@ class NeuTheme {
       ),
       navigationRailTheme: NavigationRailThemeData(
         backgroundColor: scheme.surface,
-        indicatorColor: scheme.primaryContainer,
+        indicatorColor: scheme.secondaryContainer,
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(Ds.rMd)),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(Ds.rMd)),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(Ds.rMd)),
+              borderRadius: BorderRadius.circular(ios ? Ds.rMd : Ds.full)),
+          minimumSize: const Size(48, 48),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
           textStyle: text.labelLarge,
         ),
@@ -193,30 +205,35 @@ class NeuTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(Ds.rMd)),
+              borderRadius: BorderRadius.circular(ios ? Ds.rMd : Ds.full)),
+          minimumSize: const Size(48, 48),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           textStyle: text.labelLarge,
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        fillColor: ios ? cardColor : scheme.surfaceContainerHighest,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(Ds.rMd),
           borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(Ds.rMd),
+          borderSide: BorderSide(color: scheme.primary, width: 2),
         ),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
       ),
       chipTheme: ChipThemeData(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(Ds.rSm)),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(Ds.rSm)),
         labelStyle: text.labelMedium,
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(Ds.rMd)),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(Ds.rMd)),
       ),
       tabBarTheme: TabBarThemeData(
         dividerColor: Colors.transparent,
@@ -224,14 +241,15 @@ class NeuTheme {
         unselectedLabelColor: scheme.onSurfaceVariant,
       ),
       listTileTheme: ListTileThemeData(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Ds.rMd)),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(Ds.rMd)),
         contentPadding: const EdgeInsets.symmetric(horizontal: 12),
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        showDragHandle: true,
-        shape: RoundedRectangleBorder(
-          borderRadius:
-              BorderRadius.vertical(top: Radius.circular(Ds.rXl)),
+        showDragHandle: !ios,
+        backgroundColor: ios ? cardColor : scheme.surfaceContainerLow,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(Ds.rXl)),
         ),
       ),
     );

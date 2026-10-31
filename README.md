@@ -1,9 +1,9 @@
 # 东大一号通 · NEUPortal
 
-东北大学「一号通门户」（https://personal.neu.edu.cn/portal）的第三方 Material 3 多端客户端。
+东北大学「一号通门户」（https://personal.neu.edu.cn/portal）的第三方多端客户端：Android 遵循 Material Design 3，iOS 使用 Apple 风格组件。
 一套代码，同时构建 **Android / iOS / Windows / Web**。
 
-> 界面为全新设计的 Material 3（Material You）风格；数据来自门户真实接口，另内置一份
+> Android 使用 Material 3（Material You），iOS 使用 Cupertino 导航、搜索与设置控件；数据来自门户真实接口，另内置一份
 > 2026-10-30 抓取的真实数据快照用于离线体验。
 
 ---
@@ -24,7 +24,11 @@
 
 ## 🎨 设计
 
-- Material 3 全量：`ColorScheme.fromSeed` 动态色、tonal surface、大圆角卡片、NavigationBar 指示器
+- Android：MD3 标准字阶、`ColorScheme.fromSeed`、tonal surface、80dp NavigationBar、ChoiceChip 与胶囊按钮
+- iOS：Cupertino 标签栏与导航栏、分组背景、滑动分段控件、搜索框和日期/时间滚轮；隐藏 Android 动态取色设置
+- 小屏与大字体：应用入口按屏宽分页、外观设置独立一行、登录/日程表单可在键盘上方滚动；课表保持最小可读宽度，可左右滑动
+- 交互：首页快捷入口切换现有页签，保留搜索与滚动状态；登录支持自动填充、行内错误和重复提交保护
+- 辅助功能：主题色选中语义、完整应用名称朗读、减少动态效果设置、深色课程颜色适配
 - 种子色取自门户 `site/info` 接口的 `theme_color`（`#3553A2`，东大蓝）
 - 深浅色双主题；Android 12+ 支持跟随壁纸动态取色（`dynamic_color`）
 - 全中文界面；触感反馈（切页/点课表/刷新）
@@ -109,5 +113,16 @@ lib/
 
 ```bash
 flutter analyze   # 0 issues
-flutter test      # RSA 加密 / GPA 计算 / 色板稳定性单测
+flutter test      # 业务单测 + 双平台导航/搜索/设置/表单/大字体回归
 ```
+
+### UI 验证与预览
+
+`test/platform_ux_test.dart` 在 Android / iOS 平台覆盖下检查导航、搜索保留、主题切换、320px 宽 + 1.3 倍字体、键盘避让、日程保存与减少动态效果。
+Windows 本地可生成预览（采用本机微软雅黑，字体与 iPhone / Android 真机会有差异）：
+
+```powershell
+flutter test --dart-define=UI_PREVIEWS=true --update-goldens test/platform_ux_test.dart
+```
+
+图片位于 `outputs/ui/`。iOS 真机侧滑、VoiceOver、系统字体和系统材质效果仍需 macOS / iPhone 验收。

@@ -4,6 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'core/app_state.dart';
 import 'core/theme.dart';
+import 'core/platform_style.dart';
 import 'pages/shell.dart';
 
 class NEUPortalApp extends StatelessWidget {
@@ -21,13 +22,11 @@ class NEUPortalApp extends StatelessWidget {
           return Builder(
             builder: (ctx) {
               final s = AppScope.of(ctx);
-              final useDyn = s.useDynamicColor;
-              final light = NeuTheme.light(useDyn && lightDynamic != null
-                  ? lightDynamic.primary
-                  : s.seedColor);
-              final dark = NeuTheme.dark(useDyn && darkDynamic != null
-                  ? darkDynamic.primary
-                  : s.seedColor);
+              final useDyn = !isApple && s.useDynamicColor;
+              final light = NeuTheme.light(s.seedColor,
+                  ios: isApple, dynamicScheme: useDyn ? lightDynamic : null);
+              final dark = NeuTheme.dark(s.seedColor,
+                  ios: isApple, dynamicScheme: useDyn ? darkDynamic : null);
               return MaterialApp(
                 title: '东大一号通',
                 debugShowCheckedModeBanner: false,
