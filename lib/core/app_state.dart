@@ -78,6 +78,57 @@ class AppState extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// 最近一次真实服务列表缓存：退出登录/离线时展示完整服务而非演示缩略表。
+  Future<void> _saveAppsCache(List<PortalApp> list) async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setString(
+          _kAppsCache,
+          jsonEncode(list
+              .map((a) => {
+                    'name': a.name,
+                    'appId': a.appId,
+                    'url': a.url,
+                    'mobileUrl': a.mobileUrl,
+                    'iconUrl': a.iconUrl,
+                    'desc': a.desc,
+                    'category': a.category,
+                    'visits': a.visits,
+                  })
+              .toList()));
+    } catch (_) {}
+  }
+
+  Future<List<PortalApp>> _loadAppsCache() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final raw = p.getString(_kAppsCache);
+      if (raw == null || raw.isEmpty) return const [];
+      return (jsonDecode(raw) as List)
+          .whereType<Map>()
+          .map((j) => PortalApp(
+                name: '${j['name'] ?? ''}',
+                appId: '${j['appId'] ?? ''}',
+                url: '${j['url'] ?? ''}',
+                mobileUrl: '${j['mobileUrl'] ?? ''}',
+                iconUrl: '${j['iconUrl'] ?? ''}',
+                desc: '${j['desc'] ?? ''}',
+                category: '${j['category'] ?? ''}',
+                visits: int.tryParse('${j['visits'] ?? 0}') ?? 0,
+              ))
+          .where((a) => a.name.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// 吸收 WebView 会话（单点登出/过期后页面内自愈用）。
+  void absorbWebSession(
+      List<({String name, String value, String domain, String path})> cookies) {
+    _client?.absorbWebCookies(cookies);
+  }
+
   // ── 外观设置（持久化）───────────────────────────────
   ThemeMode themeMode = ThemeMode.system;
   Color seedColor = NeuColors.seed;
@@ -92,6 +143,7 @@ class AppState extends ChangeNotifier {
   static const _kGlassMode = 'ui.liquidTabBarMode';
   static const _kEvents = 'planner.events';
   static const _kSession = 'session.mode';
+  static const _kAppsCache = 'cache.apps';
   static const _kWebUa = 'session.webUserAgent';
 
   final FlutterSecureStorage _secure = const FlutterSecureStorage();
@@ -128,6 +180,8 @@ class AppState extends ChangeNotifier {
     }
     setPlatformPreference(platformStyle);
     _persistedLive = (p.getInt(_kSession) ?? 0) == 1;
+    final cachedApps = await _loadAppsCache();
+    if (cachedApps.isNotEmpty) apps = cachedApps;
     try {
       final raw = p.getString(_kEvents);
       if (raw != null && raw.isNotEmpty) {
@@ -450,7 +504,8 @@ class AppState extends ChangeNotifier {
     secondAuthCaptcha = null;
     user = PortalUser.demo;
     scheduleTemplate = demoSchedule;
-    apps = demoApps;
+    final cachedApps = await _loadAppsCache();
+    apps = cachedApps.isNotEmpty ? cachedApps : demoApps;
     news = demoNews;
     todos = demoTodos;
     dataCards = demoDataCards;
@@ -470,6 +525,12 @@ class AppState extends ChangeNotifier {
     user = PortalUser.demo;
     scheduleTemplate = demoSchedule;
     apps = demoApps;
+    unawaited(_loadAppsCache().then((cached) {
+      if (cached.isNotEmpty && mode == SessionMode.demo) {
+        apps = cached;
+        notifyListeners();
+      }
+    }));
     news = demoNews;
     todos = demoTodos;
     dataCards = demoDataCards;
@@ -493,7 +554,10 @@ class AppState extends ChangeNotifier {
     await Future.wait([
       guarded(() async => scheduleTemplate =
           _templateFromOccurrences(await c.fetchWeek(DateTime.now()))),
-      guarded(() async => apps = await c.fetchApps()),
+      guarded(() async {
+        apps = await c.fetchApps();
+        if (apps.isNotEmpty) await _saveAppsCache(apps);
+      }),
       guarded(() async => news = await c.fetchNews()),
       guarded(() async => todos = await c.fetchTodos()),
       guarded(() async => dataCards = await c.fetchDataCards()),
@@ -501,6 +565,10 @@ class AppState extends ChangeNotifier {
       guarded(() async => hotSearches = await c.fetchHotSearch()),
     ]);
     liveAvailable = total > 0 && ok >= 2;
+    if (apps.isEmpty) {
+      final cachedApps = await _loadAppsCache();
+      if (cachedApps.isNotEmpty) apps = cachedApps;
+    }
     lastError = liveAvailable ? null : '实时数据不可用（可能需要校园网或 VPN），已展示离线数据';
     notifyListeners();
   }

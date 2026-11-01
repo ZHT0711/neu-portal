@@ -224,6 +224,21 @@ class _WebViewPageState extends State<WebViewPage> {
       /* A page can disappear while the user navigates back. */
     }
     if (!mounted) return;
+    // 单点登出自愈：live 模式下页面内 CAS 重登成功（或门户会话刷新）后，
+    // 把新会话同步回 App 并刷新数据（e码通退出会连带注销整个 CAS 会话）。
+    final state = AppScope.of(context);
+    if (!widget.loginMode &&
+        state.mode == SessionMode.live &&
+        _currentUri.host == 'personal.neu.edu.cn') {
+      try {
+        final cookies = await _captureCookies(
+            Uri.parse('https://personal.neu.edu.cn/portal'));
+        state.absorbWebSession(cookies
+            .map((c) => (name: c.name, value: c.value, domain: c.domain, path: c.path))
+            .toList());
+        unawaited(state.refresh());
+      } catch (_) {}
+    }
     // 网页登录模式：落到门户域（直连成功）或网关域（被学校重定向进网关，
     // 但 CAS 已成功、CASTGC 已到手）都收会话并完成登录，不停在页面上。
     if (widget.loginMode && !_webLoginDone) {
