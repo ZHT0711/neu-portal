@@ -54,7 +54,7 @@ class _SchedulePageState extends State<SchedulePage> {
 
   @override
   void dispose() {
-    TabScroller.detach(1);
+    TabScroller.detach(1, _scroll);
     _scroll.dispose();
     super.dispose();
   }

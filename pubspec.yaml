@@ -1,7 +1,7 @@
 name: neu_portal
 description: "东北大学一号通门户 — Material 3 多端客户端（Android / iOS / Windows / Web）"
 publish_to: "none"
-version: 1.0.0+5
+version: 1.0.0+6
 
 environment:
   sdk: ">=3.12.1 <5.0.0"

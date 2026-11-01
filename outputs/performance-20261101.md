@@ -34,3 +34,11 @@ flutter test --dart-define=UI_PREVIEWS=true --update-goldens test/performance_re
 ```
 
 最后一条预览命令使用本机 Windows 微软雅黑；常规测试与 CI 不需要系统字体。
+
+## 追加修复：底栏回顶（1.0.0+6）
+
+- 修复旧页面销毁时误删新页面滚动控制器注册的问题，注销操作必须匹配控制器实例。
+- 再次点击当前底栏页签即回顶，双击同样支持；切换到其他页签再返回仍保留原滚动位置。
+- 系统开启减少动态效果时直接回顶。
+- `test/tab_scroll_test.dart` 覆盖 Android、iOS 三种底栏（原生模式模拟平台通道选择事件）的重复点击与双击、页面替换后的注册保留和减少动态效果；原生物理触摸仍需 iPhone 验证。
+- 本次静态分析 0 issues，完整 57 项测试通过。

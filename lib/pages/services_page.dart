@@ -32,7 +32,7 @@ class _ServicesPageState extends State<ServicesPage> {
 
   @override
   void dispose() {
-    TabScroller.detach(2);
+    TabScroller.detach(2, _scroll);
     _queryCtrl.dispose();
     _scroll.dispose();
     super.dispose();

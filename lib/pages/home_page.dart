@@ -31,7 +31,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
-    TabScroller.detach(0);
+    TabScroller.detach(0, _scroll);
     _scroll.dispose();
     super.dispose();
   }

@@ -21,21 +21,15 @@ class AdaptiveShell extends StatefulWidget {
 class _AdaptiveShellState extends State<AdaptiveShell> {
   int _index = 0;
   final Set<int> _visited = {0};
-  DateTime? _lastTapAt;
-  int? _lastTapIndex;
 
-  /// 同一页签 400ms 内再次点击 → 回顶。
+  /// 重复选择当前页签即回顶，也支持双击；不依赖原生底栏的回调时序。
   void _select(int i) {
-    final now = DateTime.now();
-    final doubleTap =
-        _lastTapIndex == i &&
-        _lastTapAt != null &&
-        now.difference(_lastTapAt!) < const Duration(milliseconds: 400);
-    _lastTapAt = now;
-    _lastTapIndex = i;
-    if (_index == i && doubleTap) {
+    if (_index == i) {
       hapticSelect();
-      TabScroller.scrollToTop(i);
+      TabScroller.scrollToTop(
+        i,
+        animated: !MediaQuery.disableAnimationsOf(context),
+      );
       return;
     }
     if (_index != i) {

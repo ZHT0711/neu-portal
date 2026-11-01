@@ -28,7 +28,7 @@ class _GradesPageState extends State<GradesPage> {
 
   @override
   void dispose() {
-    TabScroller.detach(3);
+    TabScroller.detach(3, _scroll);
     _scroll.dispose();
     super.dispose();
   }

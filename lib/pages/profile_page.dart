@@ -29,7 +29,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   void dispose() {
-    TabScroller.detach(4);
+    TabScroller.detach(4, _scroll);
     _scroll.dispose();
     super.dispose();
   }

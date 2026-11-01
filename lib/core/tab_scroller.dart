@@ -1,5 +1,4 @@
-/// 底栏双击回顶：各页签注册自己的滚动控制器。
-/// 外壳检测「同一页签 400ms 内双击」后调用 [TabScroller.scrollToTop]。
+/// 底栏重复点击回顶：各页签注册自己的滚动控制器。
 library;
 
 import 'package:flutter/material.dart';
@@ -11,15 +10,25 @@ abstract final class TabScroller {
     _controllers[index] = controller;
   }
 
-  static void detach(int index) {
-    if (index >= 0 && index < _controllers.length) _controllers[index] = null;
+  static void detach(int index, ScrollController controller) {
+    // 同一帧内可能先挂载新页面、再销毁旧页面，只注销当前控制器。
+    if (index >= 0 && index < _controllers.length &&
+        identical(_controllers[index], controller)) {
+      _controllers[index] = null;
+    }
   }
 
-  static void scrollToTop(int index) {
+  static void scrollToTop(int index, {bool animated = true}) {
+    if (index < 0 || index >= _controllers.length) return;
     final c = _controllers[index];
     if (c != null && c.hasClients) {
+      final top = c.position.minScrollExtent;
+      if (!animated) {
+        c.jumpTo(top);
+        return;
+      }
       c.animateTo(
-        0,
+        top,
         duration: const Duration(milliseconds: 380),
         curve: Curves.easeOutCubic,
       );
