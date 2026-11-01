@@ -224,7 +224,12 @@ class _WebViewPageState extends State<WebViewPage> {
     // 但 CAS 已成功、CASTGC 已到手）都收会话并完成登录，不停在页面上。
     if (widget.loginMode && !_webLoginDone) {
       final host = _currentUri.host.toLowerCase();
-      if (host == 'personal.neu.edu.cn' || host == 'webvpn.neu.edu.cn') {
+      // 校外会被学校依次重定向：personal → 网关 → 一网通旧门户（portal），
+      // 任何一个业务域落地都视为登录已在页面内完成，回收会话交回 App。
+      final landedBusiness = host == 'personal.neu.edu.cn' ||
+          host == 'portal.neu.edu.cn' ||
+          host == 'webvpn.neu.edu.cn';
+      if (landedBusiness) {
         // 第一次落到网关：先在页面内完成网关自己的 CAS 登录（CASTGC 就在
         // WebView 里），建立网关会话后再回门户，避免停在网关 403 拦截页。
         if (host == 'webvpn.neu.edu.cn' && !_gatewayAuthTried) {
