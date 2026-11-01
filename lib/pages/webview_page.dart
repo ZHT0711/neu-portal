@@ -54,6 +54,7 @@ class _WebViewPageState extends State<WebViewPage> {
   bool _webLoginCapturing = false;
   bool _webLoginDone = false;
   bool _gatewayAuthTried = false;
+  String _capturedUserInfoJson = '';
 
   /// 网页登录模式的导航诊断日志（发给开发者定位校外链路用）。
   final List<String> _diagLog = [];
@@ -141,6 +142,9 @@ class _WebViewPageState extends State<WebViewPage> {
           onPageFinished: (_) {
             _progressNotifier.value = 1.0;
             _onPageSettled();
+            if (widget.loginMode && !_webLoginDone) {
+              _tryCaptureUserInfo();
+            }
           },
           onWebResourceError: (error) {
             _diag('资源错误 ${error.errorCode} ${error.url ?? ''} mainFrame=${error.isForMainFrame}');
@@ -258,6 +262,20 @@ class _WebViewPageState extends State<WebViewPage> {
     }
   }
 
+  /// 在门户页面内读取 window.userInfoDSL（轮询调用，SPA 可能在停稳后才写入）。
+  Future<void> _tryCaptureUserInfo() async {
+    if (_capturedUserInfoJson.isNotEmpty) return;
+    try {
+      final v = _unwrapJsResult(await _controller.runJavaScriptReturningResult(
+        'JSON.stringify(window.userInfoDSL || {})',
+      ));
+      if (v.isNotEmpty && v != '{}') {
+        _capturedUserInfoJson = v;
+        _diag('userInfoDSL 已捕获');
+      }
+    } catch (_) {}
+  }
+
   /// 解包 runJavaScriptReturningResult 的返回（WebKit 可能再包一层 JSON 引号）。
   String _unwrapJsResult(Object? value) {
     if (value is! String) return value?.toString() ?? '';
@@ -302,30 +320,24 @@ class _WebViewPageState extends State<WebViewPage> {
         ...await _captureCookies(Uri.parse('https://portal.neu.edu.cn/tp_up/')),
       ];
       _diag('回收 ${cookies.length} 枚 Cookie：${cookies.map((c) => '${c.domain}#${c.name}').take(14).join(', ')}');
+      // 等门户 SPA 写入 userInfoDSL（最多约 4 秒）
+      for (var i = 0; i < 6 && _capturedUserInfoJson.isEmpty; i++) {
+        _tryCaptureUserInfo();
+        if (_capturedUserInfoJson.isNotEmpty) break;
+        await Future.delayed(const Duration(milliseconds: 700));
+      }
+      _diag('userInfoDSL: ${_capturedUserInfoJson.isEmpty ? '未捕获' : '已捕获'}');
       String ua = '';
       try {
         ua = _unwrapJsResult(await _controller.runJavaScriptReturningResult('navigator.userAgent'));
       } catch (_) {}
       _diag('UA: $ua');
-      // 门户页面内直接读取用户信息（真浏览器环境，WAF 不拦）
-      var userInfoJson = '';
-      if (_currentUri.host.contains('personal.neu.edu.cn') ||
-          _currentUri.path.contains('/portal')) {
-        try {
-          userInfoJson = _unwrapJsResult(await _controller.runJavaScriptReturningResult(
-            'JSON.stringify(window.userInfoDSL || {})',
-          ));
-          _diag('userInfoDSL: ${userInfoJson.isEmpty || userInfoJson == '{}' ? '未捕获' : '已捕获'}');
-        } catch (_) {
-          _diag('userInfoDSL 读取失败');
-        }
-      }
       final ok = await state.completeWebLogin(
         cookies
             .map((c) => (name: c.name, value: c.value, domain: c.domain, path: c.path))
             .toList(),
         userAgent: ua,
-        userInfoJson: userInfoJson,
+        userInfoJson: _capturedUserInfoJson,
       );
       if (!mounted) return;
       if (ok) {
