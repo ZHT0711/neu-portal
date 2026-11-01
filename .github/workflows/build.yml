@@ -55,20 +55,27 @@ jobs:
       - run: flutter pub get
       - run: flutter test
 
+      - name: Test IPA validation
+        run: python3 -m unittest discover -s tools -p 'test_*.py'
+
       - name: Build iOS (unsigned)
         run: flutter build ios --release --no-codesign
 
       - name: Package IPA
         run: |
+          set -euo pipefail
           mkdir -p build/ios/Payload
-          cp -R build/ios/Release-iphoneos/Runner.app build/ios/Payload/
+          ditto build/ios/iphoneos/Runner.app build/ios/Payload/Runner.app
           cd build/ios
-          zip -qry dongda-yihaotong-unsigned.ipa Payload
+          zip -qry -X dongda-yihaotong-unsigned.ipa Payload
+          cd ../..
+          python3 tools/verify_ipa.py build/ios/dongda-yihaotong-unsigned.ipa
 
       - uses: actions/upload-artifact@v7
         with:
           name: ipa
           path: build/ios/dongda-yihaotong-unsigned.ipa
+          if-no-files-found: error
 
   release:
     needs: [android, ios]
@@ -84,9 +91,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           mkdir -p out
           cp dist/apk/app-release.apk out/dongda-yihaotong-nightly.apk
           cp dist/ipa/dongda-yihaotong-unsigned.ipa out/dongda-yihaotong-nightly-unsigned.ipa
+          python3 tools/verify_ipa.py out/dongda-yihaotong-nightly-unsigned.ipa
+          (
+            cd out
+            zip -q -0 dongda-yihaotong-nightly-ios.zip dongda-yihaotong-nightly-unsigned.ipa
+            unzip -t dongda-yihaotong-nightly-ios.zip
+            sha256sum dongda-yihaotong-nightly.apk dongda-yihaotong-nightly-unsigned.ipa dongda-yihaotong-nightly-ios.zip > SHA256SUMS.txt
+          )
           DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
           SHA=${GITHUB_SHA::7}
           cat > notes.md <<NOTES
@@ -97,14 +112,18 @@ jobs:
           | 文件 | 用途 |
           | --- | --- |
           | dongda-yihaotong-nightly.apk | Android 直接安装 |
+          | dongda-yihaotong-nightly-unsigned.ipa | iOS 未签名 IPA，签名后安装；直接下载失败时请用下面的 ZIP |
           | dongda-yihaotong-nightly-ios.zip | iOS：内含未签名 IPA（下载后解压，用 Sideloadly / AltStore / 爱思助手 + Apple ID 签名后安装） |
           | SHA256SUMS.txt | 校验和（下载后核对完整性） |
 
           详细安装说明见 README。
+          若提示 missingEndOfCentralDirectoryRecord，请重新下载 ZIP，解压出 IPA 后导入，并核对 SHA256SUMS.txt；不要将网页或外层 ZIP 改名为 IPA。
           NOTES
           gh release delete nightly --yes --cleanup-tag || true
           gh release create nightly \
             --title "每夜构建 Nightly · $DATE" \
             --notes-file notes.md \
             out/dongda-yihaotong-nightly.apk \
-            out/dongda-yihaotong-nightly-unsigned.ipa
+            out/dongda-yihaotong-nightly-unsigned.ipa \
+            out/dongda-yihaotong-nightly-ios.zip \
+            out/SHA256SUMS.txt

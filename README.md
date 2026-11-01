@@ -68,6 +68,17 @@ iOS 原生启动屏使用随系统深浅色变化的背景与校徽着色；Flut
 **GitHub 免费的 macOS 云跑机**上执行 `flutter build ios --release --no-codesign`，
 并打包出**未签名 IPA**（Actions 页 → 对应 run → Artifacts 下载）。
 
+也可从 [每夜版 Releases](https://github.com/ZHT0711/neu-portal/releases/tag/nightly)
+下载 `dongda-yihaotong-nightly-ios.zip`，**先解压一层，取出 `.ipa`，再导入签名工具**。
+裸 `.ipa` 仍保留供直接下载；不要把外层 ZIP 或下载错误页面改名为 `.ipa`。
+
+若导入时报 `missingEndOfCentralDirectoryRecord`，表示工具未找到 ZIP 尾部目录记录，
+应先检查下载是否完整，而非反复重签：删除不完整的下载，重新下载 ZIP，解压后导入其中的 IPA。
+Release 的 `SHA256SUMS.txt` 列出各文件的 SHA-256；Windows 可用
+`Get-FileHash .\dongda-yihaotong-nightly-unsigned.ipa -Algorithm SHA256` 核对。
+也可在仓库中运行 `python tools/verify_ipa.py <文件路径>`，检查目录记录、全部文件 CRC、
+应用元数据与 Flutter 可执行文件。CI 在打包和发布前均执行这项校验。
+
 安装到 iPhone（任选其一）：
 
 | 方式 | 签名 | 有效期 |

@@ -13,6 +13,8 @@ build/
 .vscode/
 .DS_Store
 *.log
+__pycache__/
+outputs/ipa-check-*/
 
 # Android（含机器本地路径）
 android/local.properties
