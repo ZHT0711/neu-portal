@@ -191,6 +191,22 @@ class CookieJar {
     return false;
   }
 
+  /// 丢弃现有 WebVPN 网关票据（票据可能与浏览器 UA 绑定被拒，重换后再试）。
+  void removeWebVPNTickets() {
+    for (final domain in _store.keys.toList()) {
+      if (!domain.contains('webvpn.neu.edu.cn')) continue;
+      final cookies = _store[domain];
+      if (cookies == null) continue;
+      for (final name in cookies.keys.toList()) {
+        final n = name.toLowerCase();
+        if (n.contains('wengine') || n.contains('vpn_ticket') || n.contains('webvpn')) {
+          cookies.remove(name);
+        }
+      }
+      if (cookies.isEmpty) _store.remove(domain);
+    }
+  }
+
   Map<String, Map<String, String>> cookieSnapshot() {
     final out = <String, Map<String, String>>{};
     for (final entry in _store.entries) {
@@ -419,27 +435,27 @@ class PortalClient {
     var resp = await _send(http.Request('GET', Uri.parse(target))
       ..headers.addAll(_headers(Uri.parse(target))));
     var html = await _respText(resp);
-    var failed = _isPortalSessionFailure(resp, html);
-    if (failed && !target.contains('webvpn.neu.edu.cn')) {
-      // 校外门户直连会被学校重定向进 WebVPN 网关：切网关模式重试一次
-      webvpnOn = _cookies.hasWebVPNTicket();
-      if (!webvpnOn && !await ensureWebVPN()) {
+    // 三级自愈：直连 → 网关（现有票据）→ 丢弃票据强制重换（UA 绑定兜底）
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (attempt == 2) {
+        webvpnOn = false;
+        _cookies.removeWebVPNTickets();
+      } else {
+        adoptGatewayTicket();
+      }
+      if (attempt >= 1 && !await ensureWebVPN()) {
         throw PortalException('统一身份认证会话已失效，请重新登录');
       }
       target = maybeWrap(portalBase);
       resp = await _send(http.Request('GET', Uri.parse(target))
         ..headers.addAll(_headers(Uri.parse(target))));
       html = await _respText(resp);
-      failed = _isPortalSessionFailure(resp, html);
+      if (!_isPortalSessionFailure(resp, html)) {
+        final user = _extractUserFromHtml(html);
+        if (user != null) return user;
+      }
     }
-    if (failed) {
-      throw PortalException('统一身份认证会话已失效，请重新登录');
-    }
-
-    final user = _extractUserFromHtml(html);
-    if (user != null) return user;
-
-    throw PortalException('会话未能正常建立，请重新登录');
+    throw PortalException('统一身份认证会话已失效，请重新登录');
   }
 
   /// 直连门户是否失败：落在 CAS 登录页 / 网关拦截页 / 网关域。
@@ -523,6 +539,11 @@ class PortalClient {
       return WebVPN.wrap(url);
     }
     return url;
+  }
+
+  /// WebView 会话回收后：若已持有网关票据则直接进入网关模式。
+  void adoptGatewayTicket() {
+    if (_cookies.hasWebVPNTicket()) webvpnOn = true;
   }
 
   // ── 新设备二次认证（图形码 + 短信，login_second.js 流程）──────
