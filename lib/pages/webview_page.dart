@@ -62,6 +62,7 @@ class _WebViewPageState extends State<WebViewPage> {
     if (!widget.loginMode) return;
     final ts = DateTime.now().toIso8601String().substring(11, 23);
     _diagLog.add('$ts $event');
+    debugPrint('[web-login] $ts $event');
   }
 
   @override
@@ -252,6 +253,18 @@ class _WebViewPageState extends State<WebViewPage> {
     }
   }
 
+  /// 解包 runJavaScriptReturningResult 的返回（WebKit 可能再包一层 JSON 引号）。
+  String _unwrapJsResult(Object? value) {
+    if (value is! String) return value?.toString() ?? '';
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is String) return decoded;
+    } on FormatException {
+      /* WebKit already returns a decoded string. */
+    }
+    return value;
+  }
+
   /// 读取 WebView 会话 Cookie（iOS: WKHTTPCookieStore；Android: CookieManager）。
   Future<List<WebViewCookie>> _captureCookies(Uri uri) async {
     try {
@@ -284,9 +297,17 @@ class _WebViewPageState extends State<WebViewPage> {
         ...await _captureCookies(Uri.parse('https://portal.neu.edu.cn/tp_up/')),
       ];
       _diag('回收 ${cookies.length} 枚 Cookie：${cookies.map((c) => '${c.domain}#${c.name}').take(14).join(', ')}');
-      final ok = await state.completeWebLogin(cookies
-          .map((c) => (name: c.name, value: c.value, domain: c.domain, path: c.path))
-          .toList());
+      String ua = '';
+      try {
+        ua = _unwrapJsResult(await _controller.runJavaScriptReturningResult('navigator.userAgent'));
+      } catch (_) {}
+      _diag('UA: $ua');
+      final ok = await state.completeWebLogin(
+        cookies
+            .map((c) => (name: c.name, value: c.value, domain: c.domain, path: c.path))
+            .toList(),
+        userAgent: ua,
+      );
       if (!mounted) return;
       if (ok) {
         _diag('登录完成，返回主界面');

@@ -259,12 +259,15 @@ class AppState extends ChangeNotifier {
   /// 校外门户被学校重定向进 WebVPN 网关时，WebView 会落在网关域上：
   /// 此时 CASTGC 已到手，先换网关票据再经网关读取门户。
   Future<bool> completeWebLogin(
-      List<({String name, String value, String domain, String path})> cookies) async {
+    List<({String name, String value, String domain, String path})> cookies, {
+    String userAgent = '',
+  }) async {
     var c = _client;
     if (c == null) {
       c = PortalClient();
       _client = c;
     }
+    c.setUserAgent(userAgent);
     c.absorbWebCookies(cookies);
     // WebView 里已拿到网关票据 → 直接进入网关模式（校外门户必须经网关读取）
     if (c.hasWebVPNTicket) c.webvpnOn = true;

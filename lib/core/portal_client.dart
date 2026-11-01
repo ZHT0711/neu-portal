@@ -252,8 +252,16 @@ class PortalClient {
       'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) '
       'Chrome/126.0 Mobile Safari/537.36';
 
+  /// 网页登录后覆盖为 WebView 的真实 UA：网关/WAF 会校验 UA 与会话一致性。
+  String? _userAgentOverride;
+
+  /// 网页登录完成后由 WebView 回传真实 UA。
+  void setUserAgent(String ua) {
+    if (ua.trim().isNotEmpty) _userAgentOverride = ua.trim();
+  }
+
   Map<String, String> _headers(Uri uri, {bool xhr = false}) => {
-        'User-Agent': _ua,
+        'User-Agent': _userAgentOverride ?? _ua,
         'Accept': 'application/json, text/html, */*',
         if (xhr) 'X-Requested-With': 'XMLHttpRequest',
         if (_cookies.headerFor(uri) != null) 'Cookie': _cookies.headerFor(uri)!,
