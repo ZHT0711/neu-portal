@@ -148,6 +148,27 @@ void main() {
     expect(restarted.mode, SessionMode.demo);
   });
 
+  test('Android capture enriches flattened cookies but retains precise HTTP expiry', () async {
+    nativeCookies = _cookies().map((c) => {...c, 'metadataKnown': false}).toList();
+    final client = _Client();
+    final state = AppState.withClient(client);
+    addTearDown(state.dispose);
+    await state.completeWebLogin([
+      (name: 'wengine_vpn_ticket', value: 'ticket==', domain: 'webvpn.neu.edu.cn', path: '/'),
+    ], userInfoJson: jsonEncode(_profile.toInfoJson()));
+    var saved = jsonDecode((await _secure.read(key: _key))!) as Map;
+    expect(saved['cookies'][0]['secure'], isTrue);
+    expect(saved['cookies'][0]['httpOnly'], isTrue);
+    client.cookies.absorbRaw(Uri.parse('https://webvpn.neu.edu.cn/'),
+        'wengine_vpn_ticket=ticket==; Secure; HttpOnly; Expires=Wed, 01 Jan 2031 00:00:00 GMT');
+    state.absorbWebSession([
+      (name: 'wengine_vpn_ticket', value: 'ticket==', domain: 'webvpn.neu.edu.cn', path: '/'),
+    ]);
+    await state.persistWebSession();
+    saved = jsonDecode((await _secure.read(key: _key))!) as Map;
+    expect(saved['cookies'][0]['expires'], DateTime.utc(2031).millisecondsSinceEpoch);
+  });
+
   test('CookieJar preserves Expires, host scope, flags and Max-Age precedence', () {
     final jar = CookieJar();
     jar.absorbRaw(Uri.parse('https://pass.neu.edu.cn/tpass/login'),

@@ -37,6 +37,7 @@ class _CookieEntry {
   final bool secure;
   final bool hostOnly;
   final bool httpOnly;
+  final bool metadataKnown;
 
   _CookieEntry({
     required this.name,
@@ -47,6 +48,7 @@ class _CookieEntry {
     this.secure = false,
     this.hostOnly = false,
     this.httpOnly = false,
+    this.metadataKnown = true,
   });
 
   bool get isExpired {
@@ -69,7 +71,7 @@ class CookieJar {
     absorbRaw(uri, resp.headers['set-cookie']);
   }
 
-  void absorbRaw(Uri uri, String? sc) {
+  void absorbRaw(Uri uri, String? sc, {bool metadataKnown = true}) {
     if (sc == null || sc.isEmpty) return;
 
     for (final rawCookie in splitSetCookie(sc)) {
@@ -145,6 +147,7 @@ class CookieJar {
           secure: secure,
           hostOnly: hostOnly,
           httpOnly: httpOnly,
+          metadataKnown: metadataKnown,
         );
       }
     }
@@ -172,6 +175,7 @@ class CookieJar {
             'secure': c.secure,
             'httpOnly': c.httpOnly,
             'hostOnly': c.hostOnly,
+            'metadataKnown': c.metadataKnown,
             'expires': c.expires?.millisecondsSinceEpoch,
           },
   ];
@@ -199,6 +203,7 @@ class CookieJar {
         secure: j['secure'] == true,
         httpOnly: j['httpOnly'] == true,
         hostOnly: j['hostOnly'] == true,
+        metadataKnown: j['metadataKnown'] != false,
         expires: expiry is num
             ? DateTime.fromMillisecondsSinceEpoch(expiry.toInt())
             : null,
@@ -695,7 +700,13 @@ class PortalClient {
       var domain = c.domain.toLowerCase();
       if (domain.startsWith('.')) domain = domain.substring(1);
       final uri = Uri.parse('https://$domain/');
-      _cookies.absorbRaw(uri, '${c.name}=${c.value}; Domain=$domain; Path=${c.path}');
+      // A WebViewCookie has no security/expiry attributes. Keep richer metadata
+      // already learned from HTTP/native storage when the value is unchanged.
+      final existing = _cookies.sessionCookies().where((r) =>
+          r['name'] == c.name && r['domain'] == domain && r['path'] == c.path);
+      if (existing.any((r) => r['value'] == c.value)) continue;
+      _cookies.absorbRaw(uri, '${c.name}=${c.value}; Domain=$domain; Path=${c.path}',
+          metadataKnown: false);
     }
   }
 

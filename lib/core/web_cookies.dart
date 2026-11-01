@@ -1,8 +1,8 @@
 /// 读取系统 WebView 的持久化会话 Cookie。
 ///
 /// iOS: WKHTTPCookieStore（HttpOnly 含 CASTGC / SESS_ID / 网关票据）；
-/// Android: 全局 CookieManager。网页登录的会话存在 WebView 的
-/// 默认持久化存储里，重启后依然有效，可据此免密码恢复登录。
+/// Android: 全局 CookieManager。此处用于页面登录回收；跨进程恢复由
+/// web_session.dart 的原生桥和安全存储快照负责，不能依赖会话 Cookie 自行落盘。
 library;
 
 import 'package:flutter/foundation.dart' show kIsWeb;

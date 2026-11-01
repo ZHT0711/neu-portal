@@ -183,7 +183,7 @@ class AppState extends ChangeNotifier {
           final key = sessionCookieKey(r);
           final previous = records[key];
           records[key] =
-              r['metadataKnown'] == false && previous?['value'] == r['value']
+              r['metadataKnown'] == false && previous?['metadataKnown'] != false && previous?['value'] == r['value']
               ? previous!
               : r;
         }
