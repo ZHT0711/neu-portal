@@ -539,11 +539,11 @@ class _WebViewPageState extends State<WebViewPage> {
           title: title,
           leading: isApple
               ? Tooltip(
-                  message: _canGoBack ? '返回上一页' : '返回',
+                  message: '关闭页面',
                   child: CupertinoButton(
                     padding: EdgeInsets.zero,
                     minimumSize: const Size(36, 36),
-                    onPressed: smartBack,
+                    onPressed: () => Navigator.of(context).pop(),
                     child: Icon(
                       CupertinoIcons.back,
                       size: 24,
@@ -553,9 +553,9 @@ class _WebViewPageState extends State<WebViewPage> {
                   ),
                 )
               : IconButton(
-                  tooltip: _canGoBack ? '返回上一页' : '返回',
+                  tooltip: '关闭页面',
                   icon: const Icon(Icons.arrow_back),
-                  onPressed: smartBack,
+                  onPressed: () => Navigator.of(context).pop(),
                 ),
           actions: [
             if (widget.loginMode)
