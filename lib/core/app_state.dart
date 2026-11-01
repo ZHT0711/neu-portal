@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'demo_data.dart';
 import 'models.dart';
+import 'web_cookies.dart';
 import 'platform_style.dart';
 import 'portal_client.dart';
 import 'semester.dart';
@@ -91,6 +92,7 @@ class AppState extends ChangeNotifier {
   static const _kGlassMode = 'ui.liquidTabBarMode';
   static const _kEvents = 'planner.events';
   static const _kSession = 'session.mode';
+  static const _kWebUa = 'session.webUserAgent';
 
   final FlutterSecureStorage _secure = const FlutterSecureStorage();
 
@@ -302,6 +304,9 @@ class AppState extends ChangeNotifier {
         }
       }
       final p = await SharedPreferences.getInstance();
+      if (userAgent.trim().isNotEmpty) {
+        await p.setString(_kWebUa, userAgent.trim());
+      }
       final sid = p.getString('cas.user') ?? '';
       user = u ??
           PortalUser(
@@ -363,7 +368,20 @@ class AppState extends ChangeNotifier {
     if (_restoring || loading || mode == SessionMode.live) return;
     if (!_persistedLive) return;
     final creds = await storedCredentials();
-    if (creds == null) return;
+    if (creds == null) {
+      // 无密码凭证：尝试网页登录留下的 WebView 持久化会话
+      _restoring = true;
+      try {
+        final ok = await restoreWebSession();
+        if (!ok) {
+          lastError = '登录会话已过期，请重新登录';
+        }
+        notifyListeners();
+      } finally {
+        _restoring = false;
+      }
+      return;
+    }
     _restoring = true;
     try {
       await login(creds.$1, creds.$2);
@@ -375,10 +393,57 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// 退出登录：清除会话与保存的凭证。
+  /// 网页登录后的重启恢复：读取 WebView 持久化会话（无需密码）。
+  Future<bool> restoreWebSession() async {
+    final c = _client ??= PortalClient();
+    try {
+      final p = await SharedPreferences.getInstance();
+      final ua = p.getString(_kWebUa) ?? '';
+      if (ua.isNotEmpty) c.setUserAgent(ua);
+      final cookies = await captureWebLoginCookies();
+      if (cookies.isEmpty) return false;
+      c.absorbWebCookies(cookies
+          .map((ck) => (name: ck.name, value: ck.value, domain: ck.domain, path: ck.path))
+          .toList());
+      if (c.hasWebVPNTicket) c.webvpnOn = true;
+      if (!c.isLoggedIn && !c.hasCasSession && !c.hasWebVPNTicket) return false;
+      PortalUser? u;
+      try {
+        u = await c.fetchUserInfo();
+      } catch (_) {
+        u = null;
+      }
+      final sid = p.getString('cas.user') ?? '';
+      user = u ??
+          PortalUser(
+            uid: '',
+            name: sid.isEmpty ? '东大师生' : sid,
+            sid: sid,
+            identity: '',
+            department: '',
+            email: '',
+            avatarUrl: '',
+          );
+      mode = SessionMode.live;
+      _persistedLive = true;
+      lastError = null;
+      await p.setInt(_kSession, 1);
+      await _refreshLive();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 退出登录：清除会话与保存的凭证（含 WebView 里的网页登录会话）。
   Future<void> logout() async {
     _client?.dispose();
     _client = null;
+    needsSecondAuth = false;
+    secondAuthCaptcha = null;
+    try {
+      await clearWebViewCookies();
+    } catch (_) {}
     mode = SessionMode.demo;
     _persistedLive = false;
     needsSecondAuth = false;
