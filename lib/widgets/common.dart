@@ -250,6 +250,8 @@ class AppTile extends StatelessWidget {
           child: Image.network(
             url,
             fit: BoxFit.cover,
+            cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).ceil(),
+            cacheHeight: (size * MediaQuery.devicePixelRatioOf(context)).ceil(),
             errorBuilder: (_, _, _) => _letterBox(tone, size),
           ),
         ),

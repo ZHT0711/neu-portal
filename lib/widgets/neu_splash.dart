@@ -1,14 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 
-import '../core/platform_style.dart';
-import '../core/ios_glass.dart';
-
-const bool kIsTest = bool.fromEnvironment('FLUTTER_TEST');
-
-/// 东北大学特色启动与全屏加载页面
-/// 融合百年东大校徽、校训「自强不息·知行合一」与 Apple 原生液态玻璃微光微动效。
-/// 具备严格的生命周期管控与瞬态帧率优化，杜绝后台空转与 GPU 发热。
+/// 有限时长的品牌启动层，始终保留底下页面的同一棵元素树。
 class NeuSplashView extends StatefulWidget {
   const NeuSplashView({
     super.key,
@@ -27,12 +20,11 @@ class NeuSplashView extends StatefulWidget {
 
 class _NeuSplashViewState extends State<NeuSplashView>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
-  AnimationController? _pulseCtrl;
-  Animation<double>? _scaleAnim;
-  Animation<double>? _glowAnim;
-
-  bool _splashDone = kIsTest;
-  bool _timerFired = false;
+  late final AnimationController _entrance;
+  late final Animation<double> _scale;
+  bool _removed = false;
+  bool _dismissing = false;
+  bool _minimumElapsed = false;
   Timer? _dismissTimer;
   Timer? _maxGuardTimer;
 
@@ -40,108 +32,58 @@ class _NeuSplashViewState extends State<NeuSplashView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-
-    if (kIsTest || widget.minDuration == Duration.zero) {
-      _splashDone = true;
+    _entrance = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+    _scale = Tween<double>(
+      begin: 0.97,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _entrance, curve: Curves.easeOutCubic));
+    if (widget.minDuration == Duration.zero) {
+      _removed = true;
       return;
     }
-
-    final ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
-    _pulseCtrl = ctrl;
-
-    _scaleAnim = Tween<double>(begin: 0.94, end: 1.0).animate(
-      CurvedAnimation(parent: ctrl, curve: Curves.easeOutBack),
-    );
-    _glowAnim = Tween<double>(begin: 0.15, end: 0.50).animate(
-      CurvedAnimation(parent: ctrl, curve: Curves.easeOutCubic),
-    );
-
-    // 单次优雅进场展开，避免死循环 repeat() 导致 CPU/GPU 100% 满载发热
-    ctrl.forward();
-
-    // 预热图片资源，指定 cache 大小节约 GPU 内存
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        precacheImage(
-          const ResizeImage(
-            AssetImage('assets/icon/neu_crest.png'),
-            width: 140,
-            height: 140,
-          ),
-          context,
-        );
-        precacheImage(
-          const ResizeImage(
-            AssetImage('assets/icon/logo.png'),
-            width: 160,
-            height: 160,
-          ),
-          context,
-        );
-      }
-    });
-
+    _entrance.forward();
     _dismissTimer = Timer(widget.minDuration, () {
-      if (!mounted) return;
-      _timerFired = true;
-      _checkDismiss();
+      _minimumElapsed = true;
+      if (widget.isReady) _dismiss();
     });
-
-    // 保护计时器：即使网络请求在慢速 5G 或离线等待，最多 850ms 自动过渡进主页，
-    // 不将用户与 GPU 长时间锁在闪屏着色器循环中
-    _maxGuardTimer = Timer(const Duration(milliseconds: 850), () {
-      if (!mounted || _splashDone) return;
-      _timerFired = true;
-      _dismissImmediately();
-    });
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    // 监听系统生命周期：锁屏或退至后台时立即停止一切 Ticker，防范 Issue #1110 后台发热
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.hidden) {
-      _pulseCtrl?.stop();
-    } else if (state == AppLifecycleState.resumed && !_splashDone) {
-      if (_pulseCtrl?.isAnimating == false) {
-        _pulseCtrl?.forward();
-      }
-    }
+    // 慢网续登仍在后台继续，启动层不会一直阻挡首页。
+    _maxGuardTimer = Timer(const Duration(milliseconds: 850), _dismiss);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (MediaQuery.disableAnimationsOf(context) && !_splashDone) {
-      _dismissImmediately();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _entrance.stop();
+      _dismissTimer?.cancel();
+      _maxGuardTimer?.cancel();
+      _removed = true;
     }
   }
 
   @override
   void didUpdateWidget(NeuSplashView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.isReady && !oldWidget.isReady) {
-      _checkDismiss();
-    }
+    if (widget.isReady && _minimumElapsed) _dismiss();
   }
 
-  void _checkDismiss() {
-    if (_timerFired && (widget.isReady || _timerFired) && !_splashDone) {
-      _dismissImmediately();
-    }
-  }
-
-  void _dismissImmediately() {
-    if (_splashDone) return;
-    _pulseCtrl?.stop();
+  void _dismiss() {
+    if (!mounted || _removed || _dismissing) return;
+    _entrance.stop();
     _dismissTimer?.cancel();
     _maxGuardTimer?.cancel();
-    if (mounted) {
-      setState(() => _splashDone = true);
+    setState(() => _dismissing = true);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      _entrance.stop();
+    } else if (!_removed && !_dismissing && !_entrance.isCompleted) {
+      _entrance.forward();
     }
   }
 
@@ -150,210 +92,145 @@ class _NeuSplashViewState extends State<NeuSplashView>
     WidgetsBinding.instance.removeObserver(this);
     _dismissTimer?.cancel();
     _maxGuardTimer?.cancel();
-    _pulseCtrl?.dispose();
+    _entrance.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_splashDone) return widget.child;
-
     final scheme = Theme.of(context).colorScheme;
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = isApple
-        ? (dark ? const Color(0xFF0D1117) : const Color(0xFFF7F8FA))
-        : scheme.surface;
-
-    return RepaintBoundary(
-      child: Stack(
-        children: [
-          // 主内容
-          widget.child,
-
-          // 覆盖在最上层的东北大学特色启动层
+    // Stack 的结构不随启动层消失而改变，避免首页销毁后重新初始化。
+    return Stack(
+      children: [
+        widget.child,
+        if (!_removed)
           Positioned.fill(
-            child: AnimatedOpacity(
-              opacity: _splashDone ? 0.0 : 1.0,
-              duration: const Duration(milliseconds: 240),
-              curve: Curves.easeOutCubic,
-              child: Material(
-                color: bgColor,
-                child: SafeArea(
-                  child: Column(
-                    children: [
-                      const Spacer(flex: 3),
-
-                      // 1. 东大校徽液态微光徽章
-                      Center(
-                        child: _pulseCtrl != null &&
-                                _scaleAnim != null &&
-                                _glowAnim != null
-                            ? AnimatedBuilder(
-                                animation: _pulseCtrl!,
-                                builder: (context, child) {
-                                  return Transform.scale(
-                                    scale: _scaleAnim!.value,
-                                    child: Container(
-                                      width: 104,
-                                      height: 104,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: scheme.primary.withValues(
-                                                alpha: _glowAnim!.value * 0.40),
-                                            blurRadius: 24,
-                                            spreadRadius: 2,
-                                          ),
-                                        ],
-                                      ),
-                                      child: child,
+            child: BlockSemantics(
+              child: IgnorePointer(
+                ignoring: _dismissing,
+                child: AnimatedOpacity(
+                  opacity: _dismissing ? 0 : 1,
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  onEnd: () {
+                    if (mounted && _dismissing) {
+                      setState(() => _removed = true);
+                    }
+                  },
+                  child: RepaintBoundary(
+                    child: Material(
+                      color: Theme.of(context).scaffoldBackgroundColor,
+                      child: SafeArea(
+                        child: Column(
+                          children: [
+                            const Spacer(flex: 3),
+                            ScaleTransition(
+                              scale: _scale,
+                              child: Container(
+                                width: 104,
+                                height: 104,
+                                padding: const EdgeInsets.all(18),
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: scheme.surfaceContainerLow,
+                                  border: Border.all(
+                                    color: scheme.outlineVariant.withValues(
+                                      alpha: dark ? 0.35 : 0.5,
                                     ),
-                                  );
-                                },
-                                child: _buildBadge(context, dark, scheme),
-                              )
-                            : _buildBadge(context, dark, scheme),
-                      ),
-
-                      const SizedBox(height: 24),
-
-                      // 2. 东北大学 · 一号通
-                      Text(
-                        '东北大学 · 一号通',
-                        style: TextStyle(
-                          fontSize: 21,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.4,
-                          color: scheme.onSurface,
-                        ),
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      // 3. 东大校训：自强不息 · 知行合一
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 16,
-                            height: 1,
-                            color: scheme.primary.withValues(alpha: 0.4),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 10),
-                            child: Text(
+                                  ),
+                                ),
+                                child: Image.asset(
+                                  'assets/icon/neu_crest.png',
+                                  color: dark ? scheme.primary : null,
+                                  width: 68,
+                                  height: 68,
+                                  cacheWidth:
+                                      (68 *
+                                              MediaQuery.devicePixelRatioOf(
+                                                context,
+                                              ))
+                                          .ceil(),
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            Text(
+                              '东北大学 · 一号通',
+                              style: TextStyle(
+                                fontSize: 21,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -0.4,
+                                color: scheme.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
                               '自强不息 · 知行合一',
                               style: TextStyle(
                                 fontSize: 13,
-                                fontWeight: FontWeight.w600,
                                 letterSpacing: 1.8,
-                                color: isApple
-                                    ? scheme.primary
-                                    : scheme.onSurfaceVariant,
+                                color: scheme.onSurfaceVariant,
                               ),
                             ),
-                          ),
-                          Container(
-                            width: 16,
-                            height: 1,
-                            color: scheme.primary.withValues(alpha: 0.4),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 28),
-
-                      // 4. 液态微光流动条
-                      SizedBox(
-                        width: 120,
-                        height: 3,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(1.5),
-                          child: LinearProgressIndicator(
-                            backgroundColor:
-                                scheme.primary.withValues(alpha: 0.12),
-                            minHeight: 3,
-                          ),
-                        ),
-                      ),
-
-                      const Spacer(flex: 4),
-
-                      // 5. 底部版权与版本
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              '百年学府 · 智慧互联',
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w500,
-                                letterSpacing: 0.8,
-                                color: scheme.onSurfaceVariant
-                                    .withValues(alpha: 0.7),
+                            const SizedBox(height: 28),
+                            // 只随入场播放一次，不为等待网络持续刷新帧。
+                            SizedBox(
+                              width: 80,
+                              height: 3,
+                              child: AnimatedBuilder(
+                                animation: _entrance,
+                                builder: (context, _) =>
+                                    LinearProgressIndicator(
+                                      value: _entrance.value,
+                                      color: scheme.primary.withValues(
+                                        alpha: dark ? 0.65 : 0.8,
+                                      ),
+                                      backgroundColor: scheme.primary
+                                          .withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'NEUPortal 正式版 1.0.0',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w400,
-                                color: scheme.onSurfaceVariant
-                                    .withValues(alpha: 0.45),
+                            const Spacer(flex: 4),
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 24),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '百年学府 · 智慧互联',
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      letterSpacing: 0.8,
+                                      color: scheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'NEUPortal 正式版 1.0.0',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: scheme.onSurfaceVariant.withValues(
+                                        alpha: 0.7,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ],
-      ),
+      ],
     );
-  }
-
-  Widget _buildBadge(BuildContext context, bool dark, ColorScheme scheme) {
-    return isApple
-        ? IosGlassSurface(
-            radius: 52,
-            child: Center(
-              child: Image.asset(
-                'assets/icon/neu_crest.png',
-                width: 68,
-                height: 68,
-                cacheWidth: 136,
-                cacheHeight: 136,
-                fit: BoxFit.contain,
-              ),
-            ),
-          )
-        : Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: scheme.surfaceContainerHigh,
-              border: Border.all(
-                color: scheme.outlineVariant.withValues(alpha: 0.4),
-                width: 1,
-              ),
-            ),
-            child: Image.asset(
-              'assets/icon/neu_crest.png',
-              width: 68,
-              height: 68,
-              cacheWidth: 136,
-              cacheHeight: 136,
-              fit: BoxFit.contain,
-            ),
-          );
   }
 }
 

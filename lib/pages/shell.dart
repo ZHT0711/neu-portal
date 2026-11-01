@@ -27,7 +27,8 @@ class _AdaptiveShellState extends State<AdaptiveShell> {
   /// 同一页签 400ms 内再次点击 → 回顶。
   void _select(int i) {
     final now = DateTime.now();
-    final doubleTap = _lastTapIndex == i &&
+    final doubleTap =
+        _lastTapIndex == i &&
         _lastTapAt != null &&
         now.difference(_lastTapAt!) < const Duration(milliseconds: 400);
     _lastTapAt = now;
@@ -92,14 +93,14 @@ class _AdaptiveShellState extends State<AdaptiveShell> {
     'calendar',
     'square.grid.2x2',
     'chart.bar',
-    'person'
+    'person',
   ];
   static const _appleSelectedSymbols = [
     'house.fill',
     'calendar',
     'square.grid.2x2.fill',
     'chart.bar.fill',
-    'person.fill'
+    'person.fill',
   ];
 
   @override
@@ -170,21 +171,21 @@ class _AdaptiveShellState extends State<AdaptiveShell> {
     final Widget? bottomBar = wide
         ? null
         : isApple
-            ? IosLiquidTabBar(
-                index: _index,
-                onTap: _select,
-                items: [
-                  for (var i = 0; i < _titles.length; i++)
-                    LiquidGlassBarItem(
-                      icon: _appleIcons[i],
-                      selectedIcon: _appleSelectedIcons[i],
-                      sfSymbol: _appleSymbols[i],
-                      selectedSfSymbol: _appleSelectedSymbols[i],
-                      label: _titles[i],
-                    )
-                ],
-              )
-            : navBar;
+        ? IosLiquidTabBar(
+            index: _index,
+            onTap: _select,
+            items: [
+              for (var i = 0; i < _titles.length; i++)
+                LiquidGlassBarItem(
+                  icon: _appleIcons[i],
+                  selectedIcon: _appleSelectedIcons[i],
+                  sfSymbol: _appleSymbols[i],
+                  selectedSfSymbol: _appleSelectedSymbols[i],
+                  label: _titles[i],
+                ),
+            ],
+          )
+        : navBar;
 
     final body = Scaffold(
       extendBody: isApple,
@@ -192,7 +193,7 @@ class _AdaptiveShellState extends State<AdaptiveShell> {
         children: [
           if (wide) rail,
           Expanded(
-            child: _FadeIndexedStack(
+            child: _LazyIndexedStack(
               index: _index,
               visited: _visited,
               children: _pages,
@@ -207,9 +208,9 @@ class _AdaptiveShellState extends State<AdaptiveShell> {
   }
 }
 
-/// IndexedStack + 渐隐渐现，切页不丢状态又带过渡。
-class _FadeIndexedStack extends StatelessWidget {
-  const _FadeIndexedStack({
+/// 首次访问才创建页面；切页立即显示，保留状态并暂停不可见页面的动画。
+class _LazyIndexedStack extends StatelessWidget {
+  const _LazyIndexedStack({
     required this.index,
     required this.visited,
     required this.children,
@@ -223,16 +224,13 @@ class _FadeIndexedStack extends StatelessWidget {
   Widget build(BuildContext context) {
     return IndexedStack(
       index: index,
+      sizing: StackFit.expand,
       children: [
         for (var i = 0; i < children.length; i++)
           if (visited.contains(i))
-            AnimatedOpacity(
-              opacity: i == index ? 1 : 0,
-              duration: MediaQuery.disableAnimationsOf(context)
-                  ? Duration.zero
-                  : const Duration(milliseconds: 180),
-              curve: Curves.easeOutCubic,
-              child: TickerMode(enabled: i == index, child: children[i]),
+            TickerMode(
+              enabled: i == index,
+              child: RepaintBoundary(child: children[i]),
             )
           else
             const SizedBox.shrink(),

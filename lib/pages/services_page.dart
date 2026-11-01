@@ -48,20 +48,25 @@ class _ServicesPageState extends State<ServicesPage> {
     final apps = q.isEmpty
         ? byCate
         : byCate
-            .where((a) =>
-                a.name.toLowerCase().contains(q) ||
-                a.desc.toLowerCase().contains(q))
-            .toList();
+              .where(
+                (a) =>
+                    a.name.toLowerCase().contains(q) ||
+                    a.desc.toLowerCase().contains(q),
+              )
+              .toList();
     final sections = q.isEmpty
         ? s.services
         : s.services
-            .map((sec) => ServiceSection(
-                sec.name,
-                sec.entries
-                    .where((e) => e.name.toLowerCase().contains(q))
-                    .toList()))
-            .where((sec) => sec.entries.isNotEmpty)
-            .toList();
+              .map(
+                (sec) => ServiceSection(
+                  sec.name,
+                  sec.entries
+                      .where((e) => e.name.toLowerCase().contains(q))
+                      .toList(),
+                ),
+              )
+              .where((sec) => sec.entries.isNotEmpty)
+              .toList();
     final scheme = Theme.of(context).colorScheme;
     final noLocalMatch = apps.isEmpty && sections.isEmpty;
 
@@ -76,14 +81,15 @@ class _ServicesPageState extends State<ServicesPage> {
               backgroundColor: CupertinoColors.secondarySystemGroupedBackground
                   .resolveFrom(context)
                   .withValues(
-                      alpha: Theme.of(context).brightness == Brightness.dark
-                          ? 0.80
-                          : 0.72),
+                    alpha: Theme.of(context).brightness == Brightness.dark
+                        ? 0.80
+                        : 0.72,
+                  ),
               border: Border(
                 bottom: BorderSide(
                   color: IosColors.separator(
-                          Theme.of(context).brightness == Brightness.dark)
-                      .withValues(alpha: 0.35),
+                    Theme.of(context).brightness == Brightness.dark,
+                  ).withValues(alpha: 0.35),
                   width: 0.5,
                 ),
               ),
@@ -141,8 +147,10 @@ class _ServicesPageState extends State<ServicesPage> {
               padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
               sliver: SliverToBoxAdapter(
                 child: Panel(
-                  child:
-                      EmptyHint('本地没有匹配的应用，试试上方智慧搜索', icon: Icons.search_off),
+                  child: EmptyHint(
+                    '本地没有匹配的应用，试试上方智慧搜索',
+                    icon: Icons.search_off,
+                  ),
                 ),
               ),
             ),
@@ -156,117 +164,168 @@ class _ServicesPageState extends State<ServicesPage> {
                   q.isEmpty && _category == '全部'
                       ? '全部应用（${apps.length}）'
                       : '应用（${apps.length}）',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w800),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
             ),
-            SliverPadding(
+            _SliverPanelGrid(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              sliver: SliverToBoxAdapter(
-                child: Panel(
-                  padding:
-                      const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-                  child: LayoutBuilder(builder: (ctx, box) {
-                    final cols = (box.maxWidth / 96).floor().clamp(2, 8);
-                    return GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      padding: EdgeInsets.zero,
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: cols,
-                        mainAxisExtent:
-                            88 + MediaQuery.textScalerOf(ctx).scale(24),
-                      ),
-                      itemCount: apps.length,
-                      itemBuilder: (context, i) {
-                        final a = apps[i];
-                        return AppTile(
-                          name: a.name,
-                          iconUrl: a.iconUrl,
-                          dense: true,
-                          onTap: () => AppLinks.openApp(context, a),
-                        );
-                      },
-                    );
-                  }),
-                ),
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 14,
+                horizontal: 8,
               ),
+              columnWidth: 96,
+              maxColumns: 8,
+              minColumns: 2,
+              itemExtent: 88 + MediaQuery.textScalerOf(context).scale(24),
+              itemCount: apps.length,
+              itemBuilder: (context, i) {
+                final a = apps[i];
+                return AppTile(
+                  name: a.name,
+                  iconUrl: a.iconUrl,
+                  dense: true,
+                  onTap: () => AppLinks.openApp(context, a),
+                );
+              },
             ),
           ],
 
           // ── 专题服务 ──
           for (final sec in sections) ...[
             SliverToBoxAdapter(child: SectionHeader(sec.name)),
-            SliverPadding(
+            _SliverPanelGrid(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              sliver: SliverToBoxAdapter(
-                child: Panel(
-                  padding: const EdgeInsets.all(10),
-                  child: LayoutBuilder(builder: (ctx2, box2) {
-                    final cols2 = (box2.maxWidth / 220).floor().clamp(1, 4);
-                    return GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      padding: EdgeInsets.zero,
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: cols2,
-                        mainAxisExtent:
-                            52 + MediaQuery.textScalerOf(ctx2).scale(12),
-                        crossAxisSpacing: 8,
-                        mainAxisSpacing: 8,
+              contentPadding: const EdgeInsets.all(10),
+              columnWidth: 220,
+              maxColumns: 4,
+              itemExtent: 52 + MediaQuery.textScalerOf(context).scale(12),
+              spacing: 8,
+              itemCount: sec.entries.length,
+              itemBuilder: (context, i) {
+                final e = sec.entries[i];
+                return InkWell(
+                  onTap: () => openPortalLink(context, e.url, title: e.name),
+                  borderRadius: BorderRadius.circular(13),
+                  child: Ink(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHighest.withValues(
+                        alpha: 0.45,
                       ),
-                      itemCount: sec.entries.length,
-                      itemBuilder: (context, i) {
-                        final e = sec.entries[i];
-                        return InkWell(
-                          onTap: () =>
-                              openPortalLink(context, e.url, title: e.name),
-                          borderRadius: BorderRadius.circular(13),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            decoration: BoxDecoration(
-                              color: scheme.surfaceContainerHighest
-                                  .withValues(alpha: 0.45),
-                              borderRadius: BorderRadius.circular(13),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(Icons.link_rounded,
-                                    size: 16, color: scheme.primary),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    e.name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                        fontSize: 12.5,
-                                        fontWeight: FontWeight.w600),
-                                  ),
-                                ),
-                                if (e.desc.isNotEmpty)
-                                  Text(e.desc,
-                                      style: TextStyle(
-                                          fontSize: 10,
-                                          color: scheme.tertiary)),
-                              ],
+                      borderRadius: BorderRadius.circular(13),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.link_rounded,
+                          size: 16,
+                          color: scheme.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            e.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
-                        );
-                      },
-                    );
-                  }),
-                ),
-              ),
+                        ),
+                        if (e.desc.isNotEmpty)
+                          Text(
+                            e.desc,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: scheme.tertiary,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
           ],
 
           SliverToBoxAdapter(
-              child: SizedBox(height: portalBottomInset(context))),
+            child: SizedBox(height: portalBottomInset(context)),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+/// 保留分组卡片外观，用原生 sliver 只创建视口及缓存区内的网格项。
+class _SliverPanelGrid extends StatelessWidget {
+  const _SliverPanelGrid({
+    required this.padding,
+    required this.contentPadding,
+    required this.columnWidth,
+    required this.maxColumns,
+    this.minColumns = 1,
+    required this.itemExtent,
+    this.spacing = 0,
+    required this.itemCount,
+    required this.itemBuilder,
+  });
+
+  final EdgeInsets padding;
+  final EdgeInsets contentPadding;
+  final double columnWidth;
+  final int maxColumns;
+  final int minColumns;
+  final double itemExtent;
+  final double spacing;
+  final int itemCount;
+  final IndexedWidgetBuilder itemBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return SliverPadding(
+      padding: padding,
+      sliver: DecoratedSliver(
+        decoration: BoxDecoration(
+          color: isApple
+              ? IosColors.secondaryGroupedBackground(dark)
+              : scheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(isApple ? Ds.rMd : Ds.rLg),
+          border: isApple
+              ? Border.all(
+                  color: dark
+                      ? Colors.white.withValues(alpha: 0.08)
+                      : const Color(0x14000000),
+                  width: 0.6,
+                )
+              : null,
+        ),
+        sliver: SliverPadding(
+          padding: contentPadding,
+          sliver: SliverLayoutBuilder(
+            builder: (context, constraints) => SliverGrid.builder(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: (constraints.crossAxisExtent / columnWidth)
+                    .floor()
+                    .clamp(minColumns, maxColumns),
+                mainAxisExtent: itemExtent,
+                crossAxisSpacing: spacing,
+                mainAxisSpacing: spacing,
+              ),
+              itemCount: itemCount,
+              itemBuilder: (context, i) => Material(
+                type: MaterialType.transparency,
+                child: itemBuilder(context, i),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -302,14 +361,20 @@ class _HotSearchRow extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
           child: Row(
             children: [
-              Icon(Icons.local_fire_department,
-                  size: 15, color: scheme.tertiary),
+              Icon(
+                Icons.local_fire_department,
+                size: 15,
+                color: scheme.tertiary,
+              ),
               const SizedBox(width: 5),
-              Text('热门搜索',
-                  style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
-                      color: scheme.onSurfaceVariant)),
+              Text(
+                '热门搜索',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
             ],
           ),
         ),
@@ -325,8 +390,10 @@ class _HotSearchRow extends StatelessWidget {
                 onTap: () => onPick(kw),
                 borderRadius: BorderRadius.circular(99),
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 13,
+                    vertical: 7,
+                  ),
                   decoration: BoxDecoration(
                     color: i == 0
                         ? scheme.tertiaryContainer.withValues(alpha: 0.7)
@@ -343,14 +410,19 @@ class _HotSearchRow extends StatelessWidget {
                           child: Text(
                             '${i + 1}',
                             style: TextStyle(
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w800,
-                                color: scheme.tertiary),
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                              color: scheme.tertiary,
+                            ),
                           ),
                         ),
-                      Text(kw,
-                          style: TextStyle(
-                              fontSize: 12.5, color: scheme.onSurface)),
+                      Text(
+                        kw,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: scheme.onSurface,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -376,10 +448,12 @@ class _SmartSearchCard extends StatelessWidget {
       leading: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          gradient: LinearGradient(colors: [
-            scheme.primary,
-            Color.lerp(scheme.primary, scheme.tertiary, 0.5)!,
-          ]),
+          gradient: LinearGradient(
+            colors: [
+              scheme.primary,
+              Color.lerp(scheme.primary, scheme.tertiary, 0.5)!,
+            ],
+          ),
           borderRadius: BorderRadius.circular(12),
         ),
         child: const Icon(Icons.travel_explore, color: Colors.white),
@@ -390,14 +464,19 @@ class _SmartSearchCard extends StatelessWidget {
           children: [
             const TextSpan(text: '在智慧搜索中查 '),
             TextSpan(
-                text: '「$keyword」',
-                style: TextStyle(
-                    fontWeight: FontWeight.w800, color: scheme.primary)),
+              text: '「$keyword」',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                color: scheme.primary,
+              ),
+            ),
           ],
         ),
       ),
-      subtitle:
-          const Text('全校系统 · 通知 · 服务一键直达', style: TextStyle(fontSize: 11.5)),
+      subtitle: const Text(
+        '全校系统 · 通知 · 服务一键直达',
+        style: TextStyle(fontSize: 11.5),
+      ),
       trailing: const Icon(Icons.chevron_right),
       onTap: () => AppLinks.open(
         context,
@@ -409,10 +488,7 @@ class _SmartSearchCard extends StatelessWidget {
     if (isApple) {
       return IosGlassSurface(
         radius: Ds.rMd,
-        child: Material(
-          color: Colors.transparent,
-          child: tile,
-        ),
+        child: Material(color: Colors.transparent, child: tile),
       );
     }
 
@@ -447,16 +523,20 @@ class _CategoryChips extends StatelessWidget {
           final active = category == selected;
           if (isApple) {
             return Semantics(
-                selected: active,
-                child: CupertinoButton(
-                  color: active ? scheme.primary : scheme.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(12),
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  onPressed: () => onSelected(category),
-                  child: Text(category,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: active ? scheme.onPrimary : scheme.onSurface)),
-                ));
+              selected: active,
+              child: CupertinoButton(
+                color: active ? scheme.primary : scheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(12),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                onPressed: () => onSelected(category),
+                child: Text(
+                  category,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: active ? scheme.onPrimary : scheme.onSurface,
+                  ),
+                ),
+              ),
+            );
           }
           return ChoiceChip(
             selected: active,

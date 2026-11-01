@@ -59,7 +59,8 @@ flutter run -d <device>
 
 应用图标由 `flutter_launcher_icons` 从 `assets/icon/` 生成（改完图标重跑
 `dart run flutter_launcher_icons` 即可）。Android 启动屏为品牌蓝纯色
-（亮色 `#3553A2` / 暗色 `#1F2C60`，见 `android/app/src/main/res/values*/`）。
+（亮色 `#3553A2` / 暗色 `#111318`，见 `android/app/src/main/res/values*/`）。
+iOS 原生启动屏使用随系统深浅色变化的背景与校徽着色；Flutter 启动层沿用当前主题表面色。
 
 ## 📱 没有 Mac 怎么编 iOS IPA？
 
@@ -119,6 +120,7 @@ flutter test      # 业务单测 + 双平台导航/搜索/设置/表单/大字�
 ### UI 验证与预览
 
 `test/platform_ux_test.dart` 在 Android / iOS 平台覆盖下检查导航、搜索保留、主题切换、320px 宽 + 1.3 倍字体、键盘避让、日程保存与减少动态效果。
+`test/performance_regression_test.dart` 覆盖千项服务列表的按需创建、切页首帧与状态保留、启动层生命周期，以及数据更新时的主题复用。
 Windows 本地可生成预览（采用本机微软雅黑，字体与 iPhone / Android 真机会有差异）：
 
 ```powershell
@@ -126,6 +128,16 @@ flutter test --dart-define=UI_PREVIEWS=true --update-goldens test/platform_ux_te
 ```
 
 图片位于 `outputs/ui/`。iOS 真机侧滑、VoiceOver、系统字体和系统材质效果仍需 macOS / iPhone 验收。
+
+### 2026-11-01 兼容性性能优化（1.0.0+5）
+
+- 服务大厅使用单层 sliver 网格，按视口创建应用与专题服务，减少首次切入时的布局和图标加载。
+- 页签立即显示，保留已访问页面的搜索、滚动状态；不可见页面暂停 ticker，页面重绘彼此隔离。
+- 普通业务数据更新复用主题，仅外观设置变化或动态取色结果更新时重新生成主题。
+- 应用图标按显示尺寸和设备像素比解码，减少大图标占用的图片缓存内存。
+- 启动层使用柔和徽章、深色适配与有限动画；淡出后保持首页实例，避免重复初始化。减少动态效果时直接显示首页，慢网等待设有上限。
+
+验证范围与构建结果见 [性能优化记录](outputs/performance-20261101.md)。
 
 ### iOS 液态玻璃与校内网页兼容
 

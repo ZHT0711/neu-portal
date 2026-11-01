@@ -18,16 +18,44 @@ class NEUPortalApp extends StatefulWidget {
   State<NEUPortalApp> createState() => _NEUPortalAppState();
 }
 
-class _NEUPortalAppState extends State<NEUPortalApp> with WidgetsBindingObserver {
+class _NEUPortalAppState extends State<NEUPortalApp>
+    with WidgetsBindingObserver {
+  late (ThemeMode, Color, bool, PlatformStylePreference) _appearance;
+
+  (ThemeMode, Color, bool, PlatformStylePreference) get _currentAppearance => (
+    widget.state.themeMode,
+    widget.state.seedColor,
+    widget.state.useDynamicColor,
+    widget.state.platformStyle,
+  );
+
+  void _onStateChanged() {
+    final next = _currentAppearance;
+    if (next != _appearance) setState(() => _appearance = next);
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _appearance = _currentAppearance;
+    widget.state.addListener(_onStateChanged);
+  }
+
+  @override
+  void didUpdateWidget(NEUPortalApp oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.state != widget.state) {
+      oldWidget.state.removeListener(_onStateChanged);
+      widget.state.addListener(_onStateChanged);
+      _appearance = _currentAppearance;
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.state.removeListener(_onStateChanged);
     super.dispose();
   }
 
@@ -48,15 +76,21 @@ class _NEUPortalAppState extends State<NEUPortalApp> with WidgetsBindingObserver
       state: widget.state,
       child: DynamicColorBuilder(
         builder: (lightDynamic, darkDynamic) {
-          // Builder 的 context 在 AppScope 之下，设置变更时随 InheritedNotifier 重建。
+          // 仅外观设置变化时重建主题；课表/登录/刷新通知由各页面订阅。
           return Builder(
             builder: (ctx) {
-              final s = AppScope.of(ctx);
+              final s = widget.state;
               final useDyn = !isApple && s.useDynamicColor;
-              final light = NeuTheme.light(s.seedColor,
-                  ios: isApple, dynamicScheme: useDyn ? lightDynamic : null);
-              final dark = NeuTheme.dark(s.seedColor,
-                  ios: isApple, dynamicScheme: useDyn ? darkDynamic : null);
+              final light = NeuTheme.light(
+                s.seedColor,
+                ios: isApple,
+                dynamicScheme: useDyn ? lightDynamic : null,
+              );
+              final dark = NeuTheme.dark(
+                s.seedColor,
+                ios: isApple,
+                dynamicScheme: useDyn ? darkDynamic : null,
+              );
               return MaterialApp(
                 title: '东大一号通',
                 debugShowCheckedModeBanner: false,
@@ -71,9 +105,11 @@ class _NEUPortalAppState extends State<NEUPortalApp> with WidgetsBindingObserver
                 supportedLocales: const [Locale('zh', 'CN')],
                 locale: const Locale('zh', 'CN'),
                 builder: (context, child) => IosGlassEnvironment(child: child!),
-                home: NeuSplashView(
-                  isReady: !s.loading,
+                home: AnimatedBuilder(
+                  animation: s,
                   child: const AdaptiveShell(),
+                  builder: (context, child) =>
+                      NeuSplashView(isReady: !s.loading, child: child!),
                 ),
               );
             },
