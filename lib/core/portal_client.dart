@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 
 import 'cas_crypto.dart';
 import 'models.dart';
+import 'webvpn.dart';
 
 class PortalException implements Exception {
   final String message;
@@ -166,6 +167,22 @@ class CookieJar {
     return false;
   }
 
+  /// 是否已持有 WebVPN 网关票据（wengine / vpn_ticket / webvpn 任一未过期 Cookie）。
+  bool hasWebVPNTicket() {
+    final now = DateTime.now();
+    for (final entry in _store.entries) {
+      for (final c in entry.value.values) {
+        final n = c.name.toLowerCase();
+        if ((n.contains('wengine') || n.contains('vpn_ticket') || n.contains('webvpn')) &&
+            c.value.isNotEmpty &&
+            (c.expires == null || now.isBefore(c.expires!))) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   Map<String, Map<String, String>> cookieSnapshot() {
     final out = <String, Map<String, String>>{};
     for (final entry in _store.entries) {
@@ -190,6 +207,11 @@ class PortalClient {
 
   final http.Client _http = http.Client();
   final CookieJar _cookies = CookieJar();
+
+  /// WebVPN 网关模式：校外门户 HTML 会被学校重定向进网关，开启后门户/教务请求改走网关。
+  bool webvpnOn = false;
+  DateTime? _campusProbeAt;
+  bool? _campusProbeResult;
 
   @visibleForTesting
   CookieJar get cookies => _cookies;
@@ -301,6 +323,16 @@ class PortalClient {
       throw PortalException('账号或密码错误（如需二次短信验证，请先在网页端完成设备信任绑定）');
     }
 
+    // 校外门户登录成功后会被学校重定向进 WebVPN 网关（网关无票据时 403
+    // 显示「仅用于我校师生在校外登录」）：此时 CASTGC 已到手，
+    // 换网关票据后改经网关读取门户，不要停在网关拦截页。
+    if (finalUrl.host.contains('webvpn.neu.edu.cn')) {
+      if (!await ensureWebVPN()) {
+        throw PortalException('校外需经 WebVPN 访问门户，网关登录失败：请稍后重试，或连接校园网后直接登录');
+      }
+      return fetchUserInfo();
+    }
+
     // 尝试直接从重定向抵达的门户首页解析用户信息
     if (finalUrl.toString().startsWith(portalBase)) {
       final user = _extractUserFromHtml(postHtml);
@@ -363,20 +395,108 @@ class PortalClient {
 
   /// 从门户首页 HTML 中解析 window.userInfoDSL。
   Future<PortalUser> fetchUserInfo() async {
-    final uri = Uri.parse(portalBase);
-    final resp = await _send(http.Request('GET', uri)
-      ..headers.addAll(_headers(uri)));
-    final finalUrl = resp.request?.url ?? uri;
+    var target = maybeWrap(portalBase);
+    var resp = await _send(http.Request('GET', Uri.parse(target))
+      ..headers.addAll(_headers(Uri.parse(target))));
+    var html = await _respText(resp);
+    if (_isWebVPNBlockedPage(resp, html)) {
+      webvpnOn = false;
+      if (!await ensureWebVPN()) {
+        throw PortalException('WebVPN 网关登录失败：请稍后重试，或连接校园网后直接登录');
+      }
+      target = maybeWrap(portalBase);
+      resp = await _send(http.Request('GET', Uri.parse(target))
+        ..headers.addAll(_headers(Uri.parse(target))));
+      html = await _respText(resp);
+    }
+    final finalUrl = resp.request?.url ?? Uri.parse(target);
     if (finalUrl.host.contains('pass.neu.edu.cn') ||
         finalUrl.path.contains('/tpass/login')) {
       throw PortalException('统一身份认证会话已失效，请重新登录');
     }
 
-    final html = await _respText(resp);
     final user = _extractUserFromHtml(html);
     if (user != null) return user;
 
     throw PortalException('会话未能正常建立，请重新登录');
+  }
+
+  /// WebVPN 网关的拦截页（未携带网关会话时的 403 提示页）。
+  static bool _isWebVPNBlockedPage(http.StreamedResponse resp, String html) {
+    final url = resp.request?.url;
+    if (url == null || !url.host.contains('webvpn.neu.edu.cn')) return false;
+    return resp.statusCode == 403 || html.contains('仅用于我校师生在校外登录');
+  }
+
+  // ── 校园网 / WebVPN ────────────────────────────────────
+
+  /// 是否校园网：ecard:80 或 jwxt:443 任一可达（结果缓存 10 分钟）。
+  Future<bool> isCampusNet() async {
+    final now = DateTime.now();
+    final cached = _campusProbeResult;
+    if (_campusProbeAt != null &&
+        cached != null &&
+        now.difference(_campusProbeAt!).inMinutes < 10) {
+      return cached;
+    }
+    final ecard = await _quickReachable('http://ecard.neu.edu.cn/');
+    final ok = ecard || await _quickReachable('https://jwxt.neu.edu.cn/');
+    _campusProbeAt = now;
+    _campusProbeResult = ok;
+    if (ok) webvpnOn = false;
+    return ok;
+  }
+
+  Future<bool> _quickReachable(String url) async {
+    try {
+      final req = http.Request('GET', Uri.parse(url))..followRedirects = false;
+      await _http.send(req).timeout(const Duration(seconds: 3));
+      return true; // 任何 HTTP 响应都算可达
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 用公网一号通的 CASTGC 给 WebVPN 网关换票（必须走公网 pass，不能先开网关首页）。
+  Future<bool> ensureWebVPN() async {
+    if (webvpnOn && _cookies.hasWebVPNTicket()) return true;
+    final loginUrl =
+        'https://pass.neu.edu.cn/tpass/login?service=${Uri.encodeComponent(WebVPN.casService)}';
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final resp = await _send(http.Request('GET', Uri.parse(loginUrl))
+          ..headers.addAll(_headers(Uri.parse(loginUrl))));
+        final landed = resp.request?.url.toString() ?? '';
+        if (_cookies.hasWebVPNTicket() ||
+            (landed.contains('webvpn.neu.edu.cn') &&
+                !landed.contains('/tpass/login'))) {
+          webvpnOn = true;
+          return true;
+        }
+      } catch (_) {}
+      if (attempt == 0) {
+        await Future.delayed(const Duration(milliseconds: 400));
+      }
+    }
+    return false;
+  }
+
+  /// 校外准备：探测校园网，校外则种网关票据。
+  Future<void> prepareAccess() async {
+    if (await isCampusNet()) return;
+    await ensureWebVPN();
+  }
+
+  String maybeWrap(String url) {
+    if (!webvpnOn) return url;
+    if (WebVPN.isIntranet(url)) return WebVPN.wrap(url);
+    // 校外门户 HTML 会被学校重定向进网关，门户域的请求统一改走网关
+    final lowered = url.toLowerCase();
+    if (lowered.contains('personal.neu.edu.cn') ||
+        lowered.contains('portal.neu.edu.cn')) {
+      return WebVPN.wrap(url);
+    }
+    return url;
   }
 
   Future<Map<String, dynamic>> _api(String path,
@@ -602,15 +722,21 @@ class PortalClient {
   static const _jwxtBase = 'https://jwxt.neu.edu.cn';
 
   /// 跟随重定向 SSO 进入教务系统（CASTGC 会被 CAS 识别，建立 jwapp 会话）。
+  /// 校外自动先经 WebVPN：探测 + 换网关票据，请求与重定向目标都改走网关。
   Future<void> _jwxtSso() async {
-    var u = '$_jwxtBase/';
+    await prepareAccess();
+    var u = maybeWrap('$_jwxtBase/');
     for (var i = 0; i < 10; i++) {
       final req = http.Request('GET', Uri.parse(u))
         ..headers.addAll(_headers(Uri.parse(u)));
       final resp = await _send(req);
       final loc = resp.headers['location'];
       if (resp.statusCode >= 300 && resp.statusCode < 400 && loc != null) {
-        u = Uri.parse(u).resolve(loc).toString();
+        var next = Uri.parse(u).resolve(loc).toString();
+        if (webvpnOn && WebVPN.isIntranet(next) && !WebVPN.isWrapped(next)) {
+          next = WebVPN.wrap(next);
+        }
+        u = next;
         continue;
       }
       return;
@@ -618,7 +744,7 @@ class PortalClient {
   }
 
   Future<String> _jwxtGet(String path) async {
-    final u = '$_jwxtBase/$path';
+    final u = maybeWrap('$_jwxtBase/$path');
     final req = http.Request('GET', Uri.parse(u))
       ..headers.addAll(_headers(Uri.parse(u)));
     final resp = await _send(req);
