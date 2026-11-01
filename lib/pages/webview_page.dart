@@ -17,6 +17,7 @@ import '../core/ios_glass.dart';
 import '../core/platform_style.dart';
 import '../core/theme.dart';
 import '../core/web_policy.dart';
+import '../core/webvpn.dart';
 import 'login_page.dart';
 import 'shell.dart';
 
@@ -52,6 +53,16 @@ class _WebViewPageState extends State<WebViewPage> {
   final _httpRetriedOrigins = <String>{};
   bool _webLoginCapturing = false;
   bool _webLoginDone = false;
+  bool _gatewayAuthTried = false;
+
+  /// 网页登录模式的导航诊断日志（发给开发者定位校外链路用）。
+  final List<String> _diagLog = [];
+
+  void _diag(String event) {
+    if (!widget.loginMode) return;
+    final ts = DateTime.now().toIso8601String().substring(11, 23);
+    _diagLog.add('$ts $event');
+  }
 
   @override
   void initState() {
@@ -121,6 +132,7 @@ class _WebViewPageState extends State<WebViewPage> {
           onUrlChange: (change) => _rememberUrl(change.url),
           onPageStarted: (url) {
             _rememberUrl(url);
+            _diag('跳转 $url');
             _progressNotifier.value = 0.05;
             if (_error != null) mountedSet(() => _error = null);
           },
@@ -130,6 +142,7 @@ class _WebViewPageState extends State<WebViewPage> {
             _onPageSettled();
           },
           onWebResourceError: (error) {
+            _diag('资源错误 ${error.errorCode} ${error.url ?? ''} mainFrame=${error.isForMainFrame}');
             // WebKit emits cancellation while redirecting / opening a new target.
             if (!mounted ||
                 error.isForMainFrame != true ||
@@ -211,13 +224,29 @@ class _WebViewPageState extends State<WebViewPage> {
     if (widget.loginMode && !_webLoginDone) {
       final host = _currentUri.host.toLowerCase();
       if (host == 'personal.neu.edu.cn' || host == 'webvpn.neu.edu.cn') {
+        // 第一次落到网关：先在页面内完成网关自己的 CAS 登录（CASTGC 就在
+        // WebView 里），建立网关会话后再回门户，避免停在网关 403 拦截页。
+        if (host == 'webvpn.neu.edu.cn' && !_gatewayAuthTried) {
+          _gatewayAuthTried = true;
+          _diag('网关：尝试页面内网关 CAS 登录');
+          await _load(Uri.parse(WebVPN.casService));
+          return;
+        }
+        _diag('落地 $host，开始回收会话');
         await _completeWebLogin();
         return;
       }
     }
     if (PortalWebPolicy.isCasLogin(_currentUri)) {
+      final creds = await AppScope.of(context).storedCredentials();
       final ok = await _autoCasLogin();
-      if (!ok) mountedSet(() => _needLogin = true);
+      // 只有确实用已存凭据尝试过自动登录且失败时才是「会话失效」；
+      // 全新登录页（未存凭据/网页登录模式）不显示过期横幅。
+      if (!ok && creds != null && !widget.loginMode) {
+        mountedSet(() => _needLogin = true);
+      } else {
+        mountedSet(() => _needLogin = false);
+      }
     } else {
       mountedSet(() => _needLogin = false);
     }
@@ -254,11 +283,13 @@ class _WebViewPageState extends State<WebViewPage> {
         ...await _captureCookies(Uri.parse('https://webvpn.neu.edu.cn/')),
         ...await _captureCookies(Uri.parse('https://portal.neu.edu.cn/tp_up/')),
       ];
+      _diag('回收 ${cookies.length} 枚 Cookie：${cookies.map((c) => '${c.domain}#${c.name}').take(14).join(', ')}');
       final ok = await state.completeWebLogin(cookies
           .map((c) => (name: c.name, value: c.value, domain: c.domain, path: c.path))
           .toList());
       if (!mounted) return;
       if (ok) {
+        _diag('登录完成，返回主界面');
         _webLoginDone = true;
         final navigator = Navigator.of(context);
         if (navigator.canPop()) {
@@ -269,9 +300,11 @@ class _WebViewPageState extends State<WebViewPage> {
         }
         return;
       }
+      _diag('登录未完成：${state.lastError}');
       _webLoginCapturing = false;
       mountedSet(() => _error = state.lastError ?? '网页登录未完成，请重试。');
-    } catch (_) {
+    } catch (e) {
+      _diag('会话回收异常：$e');
       _webLoginCapturing = false;
       if (mounted) mountedSet(() => _error = '网页登录会话回收失败，请重试。');
     }
@@ -485,6 +518,12 @@ class _WebViewPageState extends State<WebViewPage> {
                   onPressed: smartBack,
                 ),
           actions: [
+            if (widget.loginMode)
+              IconButton(
+                tooltip: '诊断日志',
+                icon: const Icon(Icons.bug_report_outlined),
+                onPressed: _showDiagLog,
+              ),
             if (isApple)
               Tooltip(
                 message: _desktop ? '切换手机版' : '切换桌面版',
@@ -885,6 +924,40 @@ class _WebViewPageState extends State<WebViewPage> {
       child: SafeArea(
         top: false,
         child: toolbar,
+      ),
+    );
+  }
+
+  void _showDiagLog() {
+    final text = _diagLog.isEmpty ? '（暂无记录）' : _diagLog.join('\n');
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('登录链路诊断日志'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              text,
+              style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: text));
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('日志已复制，请发给开发者')));
+            },
+            icon: const Icon(Icons.copy, size: 16),
+            label: const Text('复制全部'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
       ),
     );
   }
