@@ -18,6 +18,7 @@ dependencies:
   dynamic_color: ^1.7.0
   url_launcher: ^6.3.0
   webview_flutter: ^4.10.0
+  webview_flutter_android: ^4.14.1
   flutter_secure_storage: ^9.2.0
   real_liquid_glass: 0.3.0
   webview_flutter_wkwebview: ^3.27.2

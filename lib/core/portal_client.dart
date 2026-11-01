@@ -523,6 +523,18 @@ class PortalClient {
 
   bool get hasPendingSecondAuth => _secondAuthExecution != null;
 
+  /// 吸收网页登录（WebView）会话 Cookie（含 CASTGC / SESS_ID / 网关票据）。
+  void absorbWebCookies(
+      List<({String name, String value, String domain, String path})> cookies) {
+    for (final c in cookies) {
+      if (c.name.isEmpty || c.value.isEmpty || c.domain.isEmpty) continue;
+      var domain = c.domain.toLowerCase();
+      if (domain.startsWith('.')) domain = domain.substring(1);
+      final uri = Uri.parse('https://$domain/');
+      _cookies.absorbRaw(uri, '${c.name}=${c.value}; Domain=$domain; Path=${c.path}');
+    }
+  }
+
   /// 拉取二次认证图形码（与登录共用 JSESSIONID 会话）。
   Future<Uint8List> fetchSecondAuthCaptcha() async {
     if (_secondAuthExecution == null) {

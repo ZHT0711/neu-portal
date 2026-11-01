@@ -255,6 +255,45 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// 网页方式登录完成：吸收 WebView 会话 Cookie 并拉取用户信息。
+  /// 校外门户被学校重定向进 WebVPN 网关时，WebView 会落在网关域上：
+  /// 此时 CASTGC 已到手，先换网关票据再经网关读取门户。
+  Future<bool> completeWebLogin(
+      List<({String name, String value, String domain, String path})> cookies) async {
+    var c = _client;
+    if (c == null) {
+      c = PortalClient();
+      _client = c;
+    }
+    c.absorbWebCookies(cookies);
+    loading = true;
+    notifyListeners();
+    try {
+      if (!c.isLoggedIn) {
+        if (!await c.ensureWebVPN()) {
+          lastError = 'WebVPN 网关登录失败：请稍后重试，或连接校园网后直接登录';
+          return false;
+        }
+      }
+      final u = await c.fetchUserInfo();
+      user = u;
+      mode = SessionMode.live;
+      _persistedLive = true;
+      needsSecondAuth = false;
+      lastError = null;
+      final p = await SharedPreferences.getInstance();
+      await p.setInt(_kSession, 1);
+      await _refreshLive();
+      return true;
+    } catch (e) {
+      lastError = e.toString();
+      return false;
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
   /// 「保持登录」：密码只进本机安全存储（Android Keystore / iOS Keychain）。
   Future<void> saveCredentials(String username, String password) async {
     if (kIsWeb) return;

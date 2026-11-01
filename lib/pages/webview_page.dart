@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../core/app_state.dart';
@@ -17,11 +18,20 @@ import '../core/platform_style.dart';
 import '../core/theme.dart';
 import '../core/web_policy.dart';
 import 'login_page.dart';
+import 'shell.dart';
 
 class WebViewPage extends StatefulWidget {
-  const WebViewPage({super.key, required this.title, required this.url});
+  const WebViewPage({
+    super.key,
+    required this.title,
+    required this.url,
+    this.loginMode = false,
+  });
   final String title;
   final String url;
+
+  /// 网页登录模式：落地门户/网关后自动吸收会话 Cookie 并完成登录。
+  final bool loginMode;
   @override
   State<WebViewPage> createState() => _WebViewPageState();
 }
@@ -40,6 +50,8 @@ class _WebViewPageState extends State<WebViewPage> {
   bool _canGoBack = false;
   bool _canGoForward = false;
   final _httpRetriedOrigins = <String>{};
+  bool _webLoginCapturing = false;
+  bool _webLoginDone = false;
 
   @override
   void initState() {
@@ -194,11 +206,74 @@ class _WebViewPageState extends State<WebViewPage> {
       /* A page can disappear while the user navigates back. */
     }
     if (!mounted) return;
+    // 网页登录模式：落到门户域（直连成功）或网关域（被学校重定向进网关，
+    // 但 CAS 已成功、CASTGC 已到手）都收会话并完成登录，不停在页面上。
+    if (widget.loginMode && !_webLoginDone) {
+      final host = _currentUri.host.toLowerCase();
+      if (host == 'personal.neu.edu.cn' || host == 'webvpn.neu.edu.cn') {
+        await _completeWebLogin();
+        return;
+      }
+    }
     if (PortalWebPolicy.isCasLogin(_currentUri)) {
       final ok = await _autoCasLogin();
       if (!ok) mountedSet(() => _needLogin = true);
     } else {
       mountedSet(() => _needLogin = false);
+    }
+  }
+
+  /// 读取 WebView 会话 Cookie（iOS: WKHTTPCookieStore；Android: CookieManager）。
+  Future<List<WebViewCookie>> _captureCookies(Uri uri) async {
+    try {
+      if (isApple) {
+        final manager =
+            WebKitWebViewCookieManager(WebKitWebViewCookieManagerCreationParams());
+        return await manager.getCookies(uri);
+      }
+      final manager = AndroidWebViewCookieManager(
+        AndroidWebViewCookieManagerCreationParams.fromPlatformWebViewCookieManagerCreationParams(
+          const PlatformWebViewCookieManagerCreationParams(),
+        ),
+      );
+      return await manager.getCookies(uri);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// 吸收会话并完成登录，成功后退出本页回到主界面。
+  Future<void> _completeWebLogin() async {
+    if (_webLoginCapturing) return;
+    _webLoginCapturing = true;
+    final state = AppScope.of(context);
+    try {
+      final cookies = <WebViewCookie>[
+        ...await _captureCookies(Uri.parse('https://pass.neu.edu.cn/tpass/login')),
+        ...await _captureCookies(Uri.parse('https://personal.neu.edu.cn/portal')),
+        ...await _captureCookies(Uri.parse('https://webvpn.neu.edu.cn/')),
+        ...await _captureCookies(Uri.parse('https://portal.neu.edu.cn/tp_up/')),
+      ];
+      final ok = await state.completeWebLogin(cookies
+          .map((c) => (name: c.name, value: c.value, domain: c.domain, path: c.path))
+          .toList());
+      if (!mounted) return;
+      if (ok) {
+        _webLoginDone = true;
+        final navigator = Navigator.of(context);
+        if (navigator.canPop()) {
+          navigator.pop();
+        } else {
+          navigator.pushReplacement(
+              MaterialPageRoute(builder: (_) => const AdaptiveShell()));
+        }
+        return;
+      }
+      _webLoginCapturing = false;
+      mountedSet(() => _error = state.lastError ?? '网页登录未完成，请重试。');
+    } catch (_) {
+      _webLoginCapturing = false;
+      if (mounted) mountedSet(() => _error = '网页登录会话回收失败，请重试。');
     }
   }
 

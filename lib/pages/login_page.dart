@@ -385,6 +385,7 @@ class _LoginPageState extends State<LoginPage> {
                                     builder: (_) => const WebViewPage(
                                       url: kNeuCasLoginUrl,
                                       title: '统一身份认证',
+                                      loginMode: true,
                                     ),
                                   ),
                                 );
