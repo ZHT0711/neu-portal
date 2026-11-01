@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'demo_data.dart';
 import 'models.dart';
 import 'web_cookies.dart';
+import 'web_session.dart';
 import 'platform_style.dart';
 import 'portal_client.dart';
 import 'semester.dart';
@@ -36,6 +37,10 @@ class AppState extends ChangeNotifier {
   PortalClient? _client;
   bool _usesWebSession = false;
   bool get usesWebSession => _usesWebSession;
+  String? sessionSaveError;
+  Future<void> _sessionWrites = Future.value();
+  int _sessionEpoch = 0;
+  bool _disposed = false;
   String? get webUserAgent => _client?.userAgent;
 
   SessionMode mode = SessionMode.demo;
@@ -135,6 +140,7 @@ class AppState extends ChangeNotifier {
   void absorbWebSession(
       List<({String name, String value, String domain, String path})> cookies) {
     _client?.absorbWebCookies(cookies);
+    unawaited(persistWebSession());
   }
 
   // ── 外观设置（持久化）───────────────────────────────
@@ -153,8 +159,64 @@ class AppState extends ChangeNotifier {
   static const _kSession = 'session.mode';
   static const _kAppsCache = 'cache.apps';
   static const _kWebUa = 'session.webUserAgent';
+  static const _kWebSession = 'session.web.v1';
 
   final FlutterSecureStorage _secure = const FlutterSecureStorage();
+
+  /// Serialized with deletion so an in-flight background save cannot undo logout.
+  Future<void> persistWebSession() {
+    final epoch = _sessionEpoch;
+    if (kIsWeb || !_usesWebSession || mode != SessionMode.live) {
+      return Future.value();
+    }
+    return _sessionWrites = _sessionWrites.then((_) async {
+      if (epoch != _sessionEpoch || !_usesWebSession) return;
+      try {
+        final c = _client;
+        if (c == null) return;
+        final records = {
+          for (final r in c.sessionCookies()) sessionCookieKey(r): r,
+        };
+        final native = await readNativeSessionCookies();
+        if (epoch != _sessionEpoch || !_usesWebSession) return;
+        for (final r in native ?? <Map<String, dynamic>>[]) {
+          final key = sessionCookieKey(r);
+          final previous = records[key];
+          records[key] =
+              r['metadataKnown'] == false && previous?['value'] == r['value']
+              ? previous!
+              : r;
+        }
+        c.restoreSessionCookies(records.values.toList());
+        if (!c.isLoggedIn && !c.hasCasSession && !c.hasWebVPNTicket) return;
+        await _secure.write(
+          key: _kWebSession,
+          value: jsonEncode({
+            'version': 1,
+            'user': user.toInfoJson(),
+            'userAgent': c.userAgent ?? '',
+            'cookies': c.sessionCookies(),
+          }),
+          iOptions: const IOSOptions(
+            accessibility: KeychainAccessibility.first_unlock_this_device,
+          ),
+        );
+        sessionSaveError = null;
+      } catch (_) {
+        sessionSaveError = '登录会话保存失败，重启后可能需要重新登录';
+      }
+      if (!_disposed && epoch == _sessionEpoch) notifyListeners();
+    });
+  }
+
+  Future<void> _clearWebSession() {
+    _sessionEpoch++;
+    return _sessionWrites = _sessionWrites
+        .then((_) async {
+          if (!kIsWeb) await _secure.delete(key: _kWebSession);
+        })
+        .catchError((Object _) {});
+  }
 
   /// 上次是否处于登录态（重启后自动续登用）。
   bool _persistedLive = false;
@@ -258,6 +320,7 @@ class AppState extends ChangeNotifier {
       final c = PortalClient();
       _client = c;
       final u = await c.login(username, password);
+      await _clearWebSession();
       user = u;
       mode = SessionMode.live;
       _persistedLive = true;
@@ -303,6 +366,8 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     try {
       final u = await c.submitSecondAuth(smsCode);
+      await _clearWebSession();
+      _usesWebSession = false;
       user = u;
       mode = SessionMode.live;
       _persistedLive = true;
@@ -387,6 +452,7 @@ class AppState extends ChangeNotifier {
       needsSecondAuth = false;
       lastError = null;
       await p.setInt(_kSession, 1);
+      await persistWebSession();
       await _refreshLive();
       return true;
     } catch (e) {
@@ -431,15 +497,18 @@ class AppState extends ChangeNotifier {
   Future<void> restoreSession() async {
     if (_restoring || loading || mode == SessionMode.live) return;
     if (!_persistedLive) return;
+    _restoring = true;
+    try {
+      if (await restoreWebSession()) return;
+    } finally {
+      _restoring = false;
+    }
     final creds = await storedCredentials();
     if (creds == null) {
       // 无密码凭证：尝试网页登录留下的 WebView 持久化会话
       _restoring = true;
       try {
-        final ok = await restoreWebSession();
-        if (!ok) {
-          lastError = '登录会话已过期，请重新登录';
-        }
+        lastError = '登录会话已过期，请重新登录';
         notifyListeners();
       } finally {
         _restoring = false;
@@ -462,6 +531,53 @@ class AppState extends ChangeNotifier {
     final c = _client ??= PortalClient();
     try {
       final p = await SharedPreferences.getInstance();
+      final raw = kIsWeb ? null : await _secure.read(key: _kWebSession);
+      if (raw != null) {
+        final saved = jsonDecode(raw) as Map;
+        if (saved['version'] != 1) return false;
+        final cookies = (saved['cookies'] as List)
+            .whereType<Map>()
+            .map((r) => Map<String, dynamic>.from(r))
+            .toList();
+        c.restoreSessionCookies(cookies);
+        c.setUserAgent('${saved['userAgent'] ?? ''}');
+        c.adoptGatewayTicket();
+        if (!c.isLoggedIn && !c.hasCasSession && !c.hasWebVPNTicket) {
+          await _clearWebSession();
+          return false;
+        }
+        user = PortalUser.fromInfoJson(
+          Map<String, dynamic>.from(saved['user'] as Map),
+        );
+        PortalUser? fresh;
+        try {
+          fresh = await c.validateSavedSession();
+        } on PortalException catch (e) {
+          if (e.sessionExpired) {
+            c.clearSessionCookies();
+            await _clearWebSession();
+            await clearWebViewCookies();
+            return false;
+          }
+        } catch (_) {
+          /* Offline: retain the verified profile and unexpired cookies. */
+        }
+        await restoreNativeSessionCookies(c.sessionCookies());
+        if (fresh != null) user = user.merge(fresh);
+        mode = SessionMode.live;
+        _usesWebSession = true;
+        _persistedLive = true;
+        lastError = null;
+        if (fresh != null) {
+          await _refreshLive();
+          await persistWebSession();
+        } else {
+          liveAvailable = false;
+          lastError = '暂时无法连接门户，已恢复上次登录会话';
+        }
+        notifyListeners();
+        return true;
+      }
       final ua = p.getString(_kWebUa) ?? '';
       if (ua.isNotEmpty) c.setUserAgent(ua);
       final cookies = await captureWebLoginCookies();
@@ -473,7 +589,13 @@ class AppState extends ChangeNotifier {
       if (!c.isLoggedIn && !c.hasCasSession && !c.hasWebVPNTicket) return false;
       PortalUser? u;
       try {
-        u = await c.fetchUserInfo();
+        u = await c.validateSavedSession();
+      } on PortalException catch (e) {
+        if (e.sessionExpired) {
+          c.clearSessionCookies();
+          await clearWebViewCookies();
+          return false;
+        }
       } catch (_) {
         u = null;
       }
@@ -493,6 +615,7 @@ class AppState extends ChangeNotifier {
       _persistedLive = true;
       lastError = null;
       await p.setInt(_kSession, 1);
+      await persistWebSession();
       await _refreshLive();
       return true;
     } catch (_) {
@@ -503,6 +626,8 @@ class AppState extends ChangeNotifier {
   /// 退出登录：清除会话与保存的凭证（含 WebView 里的网页登录会话）。
   Future<void> logout() async {
     _usesWebSession = false;
+    await _clearWebSession();
+    sessionSaveError = null;
     _client?.dispose();
     _client = null;
     needsSecondAuth = false;
@@ -615,6 +740,7 @@ class AppState extends ChangeNotifier {
   Future<void> refresh() async {
     if (mode == SessionMode.live && _client != null) {
       await _refreshLive(refreshUser: true);
+      await persistWebSession();
     } else {
       notifyListeners();
     }
@@ -658,6 +784,7 @@ class AppState extends ChangeNotifier {
   void updateWebProfile(PortalUser captured) {
     if (mode != SessionMode.live || !captured.hasProfile) return;
     user = user.merge(captured);
+    unawaited(persistWebSession());
     notifyListeners();
   }
 
@@ -727,6 +854,7 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _client?.dispose();
     super.dispose();
   }

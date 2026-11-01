@@ -6,6 +6,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart' show parseHttpDate;
 
 import 'cas_crypto.dart';
 import 'models.dart';
@@ -13,7 +14,8 @@ import 'webvpn.dart';
 
 class PortalException implements Exception {
   final String message;
-  PortalException(this.message);
+  final bool sessionExpired;
+  PortalException(this.message, {this.sessionExpired = false});
   @override
   String toString() => message;
 }
@@ -34,6 +36,7 @@ class _CookieEntry {
   final DateTime? expires;
   final bool secure;
   final bool hostOnly;
+  final bool httpOnly;
 
   _CookieEntry({
     required this.name,
@@ -43,6 +46,7 @@ class _CookieEntry {
     this.expires,
     this.secure = false,
     this.hostOnly = false,
+    this.httpOnly = false,
   });
 
   bool get isExpired {
@@ -83,6 +87,8 @@ class CookieJar {
       var path = '/';
       var hostOnly = true;
       var secure = false;
+      var httpOnly = false;
+      int? maxAge;
       DateTime? expires;
       var expired = value.isEmpty;
 
@@ -101,8 +107,13 @@ class CookieJar {
           path = attrVal;
         } else if (attrName == 'secure') {
           secure = true;
+        } else if (attrName == 'httponly') {
+          httpOnly = true;
+        } else if (attrName == 'expires') {
+          try { expires = parseHttpDate(attrVal); } catch (_) {}
         } else if (attrName == 'max-age') {
           final sec = int.tryParse(attrVal);
+          maxAge = sec;
           if (sec != null) {
             if (sec <= 0) {
               expired = true;
@@ -112,6 +123,12 @@ class CookieJar {
           }
         }
       }
+
+      // Max-Age takes precedence regardless of attribute order.
+      if (maxAge != null && maxAge > 0) {
+        expires = DateTime.now().add(Duration(seconds: maxAge));
+      }
+      expired = expired || (expires?.isBefore(DateTime.now()) ?? false);
 
       if (!_matchesDomain(uri.host, domain)) continue;
       final key = '$path\u0000$name';
@@ -127,6 +144,7 @@ class CookieJar {
           expires: expires,
           secure: secure,
           hostOnly: hostOnly,
+          httpOnly: httpOnly,
         );
       }
     }
@@ -141,6 +159,55 @@ class CookieJar {
   }
 
   void clear() => _store.clear();
+
+  List<Map<String, dynamic>> sessionCookies() => [
+    for (final domain in _store.values)
+      for (final c in domain.values)
+        if (!c.isExpired)
+          {
+            'name': c.name,
+            'value': c.value,
+            'domain': c.domain,
+            'path': c.path,
+            'secure': c.secure,
+            'httpOnly': c.httpOnly,
+            'hostOnly': c.hostOnly,
+            'expires': c.expires?.millisecondsSinceEpoch,
+          },
+  ];
+
+  void restoreSessionCookies(List<Map<String, dynamic>> cookies) {
+    for (final j in cookies) {
+      final domain = '${j['domain'] ?? ''}'.toLowerCase().replaceFirst(
+        RegExp(r'^\.'),
+        '',
+      );
+      final name = '${j['name'] ?? ''}', value = '${j['value'] ?? ''}';
+      final path = '${j['path'] ?? '/'}';
+      if (!(domain == 'neu.edu.cn' || domain.endsWith('.neu.edu.cn')) ||
+          name.isEmpty ||
+          value.isEmpty ||
+          !path.startsWith('/')) {
+        continue;
+      }
+      final expiry = j['expires'];
+      final c = _CookieEntry(
+        name: name,
+        value: value,
+        domain: domain,
+        path: path,
+        secure: j['secure'] == true,
+        httpOnly: j['httpOnly'] == true,
+        hostOnly: j['hostOnly'] == true,
+        expires: expiry is num
+            ? DateTime.fromMillisecondsSinceEpoch(expiry.toInt())
+            : null,
+      );
+      if (!c.isExpired) {
+        _store.putIfAbsent(domain, () => {})['$path\u0000$name'] = c;
+      }
+    }
+  }
 
   String? headerFor(Uri uri) {
     final host = uri.host.toLowerCase();
@@ -274,6 +341,11 @@ class PortalClient {
   browserCookies() => _cookies.browserCookies();
 
   String? get userAgent => _userAgentOverride;
+
+  List<Map<String, dynamic>> sessionCookies() => _cookies.sessionCookies();
+  void clearSessionCookies() => _cookies.clear();
+  void restoreSessionCookies(List<Map<String, dynamic>> cookies) =>
+      _cookies.restoreSessionCookies(cookies);
 
   /// 供 WebView 注入的会话快照：host → {name: value}。
   Map<String, Map<String, String>> cookieSnapshot() => _cookies.cookieSnapshot();
@@ -471,6 +543,28 @@ class PortalClient {
   }
 
   /// 从门户首页 HTML 中解析 window.userInfoDSL。
+  /// 恢复已有会话时只验证一次；网络/WAF 故障不销毁仍可用于浏览器的票据。
+  Future<PortalUser?> validateSavedSession() async {
+    adoptGatewayTicket();
+    final uri = Uri.parse(maybeWrap(portalBase));
+    final resp = await _send(
+      http.Request('GET', uri)..headers.addAll(_headers(uri)),
+    );
+    final html = await _respText(resp);
+    final landed = resp.request?.url;
+    if ((landed?.host == 'pass.neu.edu.cn') ||
+        RegExp(
+          r'<input\b[^>]*type\s*=\s*["\x27]?password',
+          caseSensitive: false,
+        ).hasMatch(html)) {
+      throw PortalException('登录会话已过期，请重新登录', sessionExpired: true);
+    }
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw PortalException('门户暂时不可用（${resp.statusCode}）');
+    }
+    return _extractUserFromHtml(html);
+  }
+
   Future<PortalUser> fetchUserInfo() async {
     // 三级自愈：直连 → 网关（现有票据）→ 丢弃票据强制重换（UA 绑定兜底）
     for (var attempt = 0; attempt < 3; attempt++) {
@@ -754,18 +848,20 @@ class PortalClient {
             final s = DateTime.tryParse('${ev['start_time'] ?? ''}');
             final e = DateTime.tryParse('${ev['end'] ?? ''}');
             if (s == null || e == null) continue;
-            out.add(CourseOccurrence(
-              date,
-              CourseSlot(
-                weekday: date.weekday,
-                startMinutes: s.hour * 60 + s.minute,
-                endMinutes: e.hour * 60 + e.minute,
-                name: '${ev['con']}',
-                room: '${ev['location'] ?? ''}'.trim().isEmpty
-                    ? '待定'
-                    : '${ev['location']}'.trim(),
+            out.add(
+              CourseOccurrence(
+                date,
+                CourseSlot(
+                  weekday: date.weekday,
+                  startMinutes: s.hour * 60 + s.minute,
+                  endMinutes: e.hour * 60 + e.minute,
+                  name: '${ev['con']}',
+                  room: '${ev['location'] ?? ''}'.trim().isEmpty
+                      ? '待定'
+                      : '${ev['location']}'.trim(),
+                ),
               ),
-            ));
+            );
           }
         }
       }

@@ -429,6 +429,11 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
 
           if (s.mode == SessionMode.live) ...[
+            if (s.sessionSaveError != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 16),
+                child: Text(s.sessionSaveError!, style: TextStyle(color: scheme.error)),
+              ),
             const SizedBox(height: 20),
             Panel(
               padding: const EdgeInsets.symmetric(vertical: 4),

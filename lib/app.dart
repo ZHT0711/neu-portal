@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -67,6 +68,7 @@ class _NEUPortalAppState extends State<NEUPortalApp>
         lifecycle == AppLifecycleState.hidden) {
       // 释放键盘焦点与瞬态手势，避免后台轮询
       FocusManager.instance.primaryFocus?.unfocus();
+      unawaited(widget.state.persistWebSession());
     }
   }
 

@@ -1,7 +1,7 @@
 name: neu_portal
 description: "东北大学一号通门户 — Material 3 多端客户端（Android / iOS / Windows / Web）"
 publish_to: "none"
-version: 1.0.0+7
+version: 1.0.0+8
 
 environment:
   sdk: ">=3.12.1 <5.0.0"
@@ -13,6 +13,7 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   http: ^1.2.0
+  http_parser: ^4.1.2
   pointycastle: ^3.9.1
   shared_preferences: ^2.3.0
   dynamic_color: ^1.7.0
