@@ -18,6 +18,14 @@ class PortalException implements Exception {
   String toString() => message;
 }
 
+/// 统一认证要求新设备短信二次认证（图形码 + 短信，login_second.js 流程）。
+class SecondAuthRequired implements Exception {
+  final String message;
+  SecondAuthRequired(this.message);
+  @override
+  String toString() => message;
+}
+
 class _CookieEntry {
   final String name;
   final String value;
@@ -308,6 +316,15 @@ class PortalClient {
     // 若最终停留/重定向在 CAS 登录页，说明认证未通过
     if (finalUrl.host.contains('pass.neu.edu.cn') ||
         finalUrl.path.contains('/tpass/login')) {
+      // 新设备二次认证（图形码 + 短信，login_second.js 流程）
+      if (postHtml.contains('second_auth_form') ||
+          postHtml.contains('当前设备需进行身份验证')) {
+        _secondAuthExecution = RegExp(r'name="execution"\s+value="([^"]+)"')
+                .firstMatch(postHtml)
+                ?.group(1) ??
+            'e1s2';
+        throw SecondAuthRequired('需要完成短信二次认证');
+      }
       final m = RegExp(
         r'<(?:span|div|p)[^>]*id="(?:errormsg|msg|msg_i18n)"[^>]*>([\s\S]*?)<\/(?:span|div|p)>',
         caseSensitive: false,
@@ -320,7 +337,7 @@ class PortalClient {
         }
         throw PortalException(rawMsg);
       }
-      throw PortalException('账号或密码错误（如需二次短信验证，请先在网页端完成设备信任绑定）');
+      throw PortalException('账号或密码错误');
     }
 
     // 校外门户登录成功后会被学校重定向进 WebVPN 网关（网关无票据时 403
@@ -497,6 +514,103 @@ class PortalClient {
       return WebVPN.wrap(url);
     }
     return url;
+  }
+
+  // ── 新设备二次认证（图形码 + 短信，login_second.js 流程）──────
+
+  /// 二次认证挑战页的 execution（e1s2），登录成功后置空。
+  String? _secondAuthExecution;
+
+  bool get hasPendingSecondAuth => _secondAuthExecution != null;
+
+  /// 拉取二次认证图形码（与登录共用 JSESSIONID 会话）。
+  Future<Uint8List> fetchSecondAuthCaptcha() async {
+    if (_secondAuthExecution == null) {
+      throw PortalException('当前没有待验证的登录，请先登录');
+    }
+    final url = Uri.parse(
+        'https://pass.neu.edu.cn/tpass/code?_=${DateTime.now().millisecondsSinceEpoch}');
+    final resp = await _send(
+        http.Request('GET', url)..headers.addAll(_headers(url)));
+    final bytes = await resp.stream.toBytes();
+    if (resp.statusCode != 200 || bytes.isEmpty) {
+      throw PortalException('图形码获取失败，请重试');
+    }
+    return Uint8List.fromList(bytes);
+  }
+
+  /// 提交图形码，请求下发短信验证码。
+  Future<void> requestSecondAuthSMS(String graphicCode) async {
+    if (_secondAuthExecution == null) {
+      throw PortalException('当前没有待验证的登录，请先登录');
+    }
+    final url = Uri.parse('https://pass.neu.edu.cn/tpass/secondAuthCode');
+    final resp = await _send(http.Request('POST', url)
+      ..headers.addAll(_headers(url))
+      ..headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'
+      ..body = 'code=${Uri.encodeComponent(graphicCode)}&method=mobile');
+    final text = await _respText(resp);
+    final lower = text.toLowerCase();
+    if (resp.statusCode != 200 ||
+        lower.contains('false') ||
+        text.contains('验证码错误') ||
+        text.contains('失败')) {
+      throw PortalException('短信发送失败：请检查图形码是否正确后重试');
+    }
+  }
+
+  /// 提交短信验证码完成二次认证并继续登录。
+  Future<PortalUser> submitSecondAuth(String smsCode) async {
+    final execution = _secondAuthExecution;
+    if (execution == null) {
+      throw PortalException('当前没有待验证的登录，请先登录');
+    }
+    final postResp = await _send(http.Request('POST', Uri.parse(kNeuCasLoginUrl))
+      ..headers.addAll(_headers(Uri.parse(kNeuCasLoginUrl)))
+      ..headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'
+      ..body = {
+        'execution': execution,
+        'RelayState': execution,
+        '_eventId': 'submit',
+        'scendAuthCode': smsCode,
+      }.entries
+          .map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
+          .join('&'));
+    final finalUrl = postResp.request?.url ?? Uri.parse(kNeuCasLoginUrl);
+    final html = await _respText(postResp);
+    if (finalUrl.host.contains('pass.neu.edu.cn') ||
+        finalUrl.path.contains('/tpass/login')) {
+      if (html.contains('second_auth_form') ||
+          html.contains('当前设备需进行身份验证')) {
+        _secondAuthExecution = RegExp(r'name="execution"\s+value="([^"]+)"')
+                .firstMatch(html)
+                ?.group(1) ??
+            execution;
+        throw PortalException('短信验证码不正确，请重新输入');
+      }
+      final m = RegExp(
+        r'<(?:span|div|p)[^>]*id="(?:errormsg|msg|msg_i18n)"[^>]*>([\s\S]*?)<\/(?:span|div|p)>',
+        caseSensitive: false,
+      ).firstMatch(html);
+      final rawMsg = m?.group(1)?.replaceAll(RegExp(r'<[^>]+>'), '').trim();
+      if (rawMsg != null && rawMsg.isNotEmpty && !rawMsg.contains('null')) {
+        throw PortalException(rawMsg);
+      }
+      throw PortalException('二次认证失败，请重新登录');
+    }
+    _secondAuthExecution = null;
+    // 校外完成二次认证后同样可能被门户重定向进 WebVPN 网关
+    if (finalUrl.host.contains('webvpn.neu.edu.cn')) {
+      if (!await ensureWebVPN()) {
+        throw PortalException('校外需经 WebVPN 访问门户，网关登录失败：请稍后重试，或连接校园网后直接登录');
+      }
+      return fetchUserInfo();
+    }
+    if (finalUrl.toString().startsWith(portalBase)) {
+      final user = _extractUserFromHtml(html);
+      if (user != null) return user;
+    }
+    return fetchUserInfo();
   }
 
   Future<Map<String, dynamic>> _api(String path,

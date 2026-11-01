@@ -3,6 +3,7 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -42,6 +43,10 @@ class AppState extends ChangeNotifier {
 
   bool loading = false;
   String? lastError;
+
+  /// 统一认证要求新设备短信二次认证（图形码已就绪状态由 secondAuthCaptcha 表示）。
+  bool needsSecondAuth = false;
+  Uint8List? secondAuthCaptcha;
 
   /// 用户添加的日程（考试、事务、提醒…），本地持久化。
   List<PlannerEvent> events = [];
@@ -181,6 +186,7 @@ class AppState extends ChangeNotifier {
   Future<void> login(String username, String password) async {
     loading = true;
     lastError = null;
+    needsSecondAuth = false;
     notifyListeners();
     try {
       _client?.dispose();
@@ -190,6 +196,53 @@ class AppState extends ChangeNotifier {
       user = u;
       mode = SessionMode.live;
       _persistedLive = true;
+      final p = await SharedPreferences.getInstance();
+      await p.setInt(_kSession, 1);
+      await _refreshLive();
+    } on SecondAuthRequired {
+      // 新设备二次认证：凭据先由登录页暂存，图形码 + 短信完成后回填
+      needsSecondAuth = true;
+      lastError = null;
+      notifyListeners();
+      rethrow;
+    } catch (e) {
+      lastError = e.toString();
+      rethrow;
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  /// 拉取二次认证图形码。
+  Future<void> loadSecondAuthCaptcha() async {
+    final c = _client;
+    if (c == null) throw PortalException('当前没有待验证的登录，请先登录');
+    secondAuthCaptcha = await c.fetchSecondAuthCaptcha();
+    notifyListeners();
+  }
+
+  /// 提交图形码，请求下发短信验证码。
+  Future<void> requestSecondAuthSMS(String graphicCode) async {
+    final c = _client;
+    if (c == null) throw PortalException('当前没有待验证的登录，请先登录');
+    await c.requestSecondAuthSMS(graphicCode);
+    notifyListeners();
+  }
+
+  /// 提交短信验证码完成二次认证并进入实时模式。
+  Future<void> completeSecondAuth(String smsCode) async {
+    final c = _client;
+    if (c == null) throw PortalException('当前没有待验证的登录，请先登录');
+    loading = true;
+    notifyListeners();
+    try {
+      final u = await c.submitSecondAuth(smsCode);
+      user = u;
+      mode = SessionMode.live;
+      _persistedLive = true;
+      needsSecondAuth = false;
+      lastError = null;
       final p = await SharedPreferences.getInstance();
       await p.setInt(_kSession, 1);
       await _refreshLive();
@@ -254,6 +307,8 @@ class AppState extends ChangeNotifier {
     _client = null;
     mode = SessionMode.demo;
     _persistedLive = false;
+    needsSecondAuth = false;
+    secondAuthCaptcha = null;
     user = PortalUser.demo;
     scheduleTemplate = demoSchedule;
     apps = demoApps;
@@ -271,6 +326,8 @@ class AppState extends ChangeNotifier {
     _client?.dispose();
     _client = null;
     mode = SessionMode.demo;
+    needsSecondAuth = false;
+    secondAuthCaptcha = null;
     user = PortalUser.demo;
     scheduleTemplate = demoSchedule;
     apps = demoApps;

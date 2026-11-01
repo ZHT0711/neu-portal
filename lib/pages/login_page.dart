@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,16 +23,26 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   final _sid = TextEditingController();
   final _pwd = TextEditingController();
+  final _graphic = TextEditingController();
+  final _sms = TextEditingController();
   bool _remember = true;
   bool _keepLogin = true;
   bool _obscure = true;
   bool _loading = false;
   String? _error;
 
+  // 新设备短信二次认证
+  bool _secondAuth = false;
+  bool _smsRequested = false;
+  bool _secondAuthLoading = false;
+  String? _secondAuthError;
+  Uint8List? _captchaBytes;
+
   @override
   void initState() {
     super.initState();
     _sid.addListener(() => setState(() {}));
+    _graphic.addListener(() => setState(() {}));
     _loadRemembered();
   }
 
@@ -77,6 +89,15 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
       _toast('欢迎回来，${state.user.name}');
       _finish();
+    } on SecondAuthRequired {
+      // 新设备二次认证：切换到图形码 + 短信验证面板
+      if (mounted) {
+        setState(() {
+          _secondAuth = true;
+          _error = null;
+        });
+        _loadCaptcha();
+      }
     } on PortalException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
@@ -86,6 +107,68 @@ class _LoginPageState extends State<LoginPage> {
       }
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadCaptcha() async {
+    setState(() => _secondAuthError = null);
+    final state = AppScope.of(context);
+    try {
+      await state.loadSecondAuthCaptcha();
+      if (!mounted) return;
+      setState(() => _captchaBytes = state.secondAuthCaptcha);
+    } catch (e) {
+      if (mounted) setState(() => _secondAuthError = e.toString());
+    }
+  }
+
+  Future<void> _sendSms() async {
+    if (_secondAuthLoading) return;
+    setState(() {
+      _secondAuthLoading = true;
+      _secondAuthError = null;
+    });
+    final state = AppScope.of(context);
+    try {
+      await state.requestSecondAuthSMS(_graphic.text.trim());
+      if (!mounted) return;
+      setState(() => _smsRequested = true);
+    } catch (e) {
+      if (mounted) setState(() => _secondAuthError = e.toString());
+      await _loadCaptcha();
+    } finally {
+      if (mounted) setState(() => _secondAuthLoading = false);
+    }
+  }
+
+  Future<void> _verify() async {
+    if (_secondAuthLoading) return;
+    setState(() {
+      _secondAuthLoading = true;
+      _secondAuthError = null;
+    });
+    final state = AppScope.of(context);
+    try {
+      await state.completeSecondAuth(_sms.text.trim());
+      final p = await SharedPreferences.getInstance();
+      if (_remember) {
+        await p.setString('cas.user', _sid.text.trim());
+      } else {
+        await p.remove('cas.user');
+      }
+      if (_keepLogin) {
+        await state.saveCredentials(_sid.text.trim(), _pwd.text);
+      } else {
+        await state.clearCredentials();
+      }
+      if (!mounted) return;
+      _toast('欢迎回来，${state.user.name}');
+      _finish();
+    } catch (e) {
+      if (mounted) setState(() => _secondAuthError = e.toString());
+      _sms.clear();
+    } finally {
+      if (mounted) setState(() => _secondAuthLoading = false);
     }
   }
 
@@ -110,6 +193,8 @@ class _LoginPageState extends State<LoginPage> {
   void dispose() {
     _sid.dispose();
     _pwd.dispose();
+    _graphic.dispose();
+    _sms.dispose();
     super.dispose();
   }
 
@@ -154,6 +239,9 @@ class _LoginPageState extends State<LoginPage> {
                           style: text.bodyLarge
                               ?.copyWith(color: scheme.onSurfaceVariant)),
                       const SizedBox(height: 28),
+                      if (_secondAuth) ...[
+                        _secondAuthPanel(scheme, text),
+                      ] else ...[
                       Panel(
                           padding: const EdgeInsets.all(16),
                           child: Column(children: [
@@ -286,6 +374,7 @@ class _LoginPageState extends State<LoginPage> {
                                   ])
                             : const Text('登录'),
                       ),
+                      ],
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
                         onPressed: _loading
@@ -326,6 +415,124 @@ class _LoginPageState extends State<LoginPage> {
         ),
       ),
     );
+  }
+
+  /// 新设备短信二次认证面板：图形码 → 发送短信 → 短信验证码 → 完成登录。
+  Widget _secondAuthPanel(ColorScheme scheme, TextTheme text) {
+    return Panel(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Icon(Icons.shield_outlined, size: 20, color: scheme.primary),
+                const SizedBox(width: 8),
+                Text('新设备短信验证', style: text.titleMedium),
+              ]),
+              const SizedBox(height: 8),
+              Text(
+                '检测到新设备登录，需要完成短信二次认证：先输入图片中的图形码获取短信，再填入短信验证码。',
+                style: text.bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 16),
+              Row(children: [
+                GestureDetector(
+                  onTap: _secondAuthLoading ? null : _loadCaptcha,
+                  child: Container(
+                    width: 110,
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: _captchaBytes != null
+                        ? Image.memory(_captchaBytes!, fit: BoxFit.contain)
+                        : const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator.adaptive(
+                                strokeWidth: 2)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _graphic,
+                    enabled: !_secondAuthLoading,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: const InputDecoration(labelText: '图形码'),
+                    onSubmitted: (_) => _sendSms(),
+                  ),
+                ),
+                IconButton(
+                  tooltip: '刷新图形码',
+                  onPressed: _secondAuthLoading ? null : _loadCaptcha,
+                  icon: const Icon(Icons.refresh),
+                ),
+              ]),
+              const SizedBox(height: 16),
+              if (_smsRequested) ...[
+                TextField(
+                  controller: _sms,
+                  enabled: !_secondAuthLoading,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: '短信验证码'),
+                ),
+                const SizedBox(height: 16),
+                AdaptiveFilledButton(
+                  onPressed: _secondAuthLoading ? null : _verify,
+                  child: _secondAuthLoading
+                      ? const Row(mainAxisSize: MainAxisSize.min, children: [
+                          SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator.adaptive(
+                                  strokeWidth: 2)),
+                          SizedBox(width: 12),
+                          Text('正在验证…'),
+                        ])
+                      : const Text('验证并登录'),
+                ),
+              ] else
+                AdaptiveFilledButton(
+                  onPressed: (_secondAuthLoading || _graphic.text.trim().isEmpty)
+                      ? null
+                      : _sendSms,
+                  child: _secondAuthLoading
+                      ? const Row(mainAxisSize: MainAxisSize.min, children: [
+                          SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator.adaptive(
+                                  strokeWidth: 2)),
+                          SizedBox(width: 12),
+                          Text('正在发送短信…'),
+                        ])
+                      : const Text('发送短信验证码'),
+                ),
+              if (_secondAuthError != null) ...[
+                const SizedBox(height: 12),
+                Text(_secondAuthError!,
+                    style: text.bodySmall?.copyWith(color: scheme.error)),
+              ],
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: _secondAuthLoading
+                    ? null
+                    : () => setState(() {
+                          _secondAuth = false;
+                          _smsRequested = false;
+                          _secondAuthError = null;
+                          _sms.clear();
+                          _graphic.clear();
+                          _captchaBytes = null;
+                        }),
+                child: const Text('返回重新登录'),
+              ),
+            ]));
   }
 
   Widget _field(
