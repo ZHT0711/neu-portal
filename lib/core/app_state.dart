@@ -261,6 +261,7 @@ class AppState extends ChangeNotifier {
   Future<bool> completeWebLogin(
     List<({String name, String value, String domain, String path})> cookies, {
     String userAgent = '',
+    String userInfoJson = '',
   }) async {
     var c = _client;
     if (c == null) {
@@ -282,13 +283,23 @@ class AppState extends ChangeNotifier {
       if (!c.webvpnOn && !await c.ensureWebVPN()) {
         // 换票失败不阻断：校内直连场景仍可用
       }
-      // 用户信息：门户 HTML 可能被 WAF 拦截，失败不阻断登录
-      // （nidong 式：核心数据走各业务 JSON 接口，用户信息尽力而为）
+      // 用户信息：优先用 WebView 内捕获的 userInfoDSL（真实页面，不被 WAF 拦），
+      // 其次经网关拉门户 HTML，都失败则用学号占位（nidong 式：登录不阻断）
       PortalUser? u;
-      try {
-        u = await c.fetchUserInfo();
-      } catch (_) {
-        u = null;
+      if (userInfoJson.isNotEmpty && userInfoJson != '{}') {
+        try {
+          final decoded = jsonDecode(userInfoJson);
+          if (decoded is Map) {
+            u = PortalUser.fromInfoJson(Map<String, dynamic>.from(decoded));
+          }
+        } catch (_) {}
+      }
+      if (u == null) {
+        try {
+          u = await c.fetchUserInfo();
+        } catch (_) {
+          u = null;
+        }
       }
       final p = await SharedPreferences.getInstance();
       final sid = p.getString('cas.user') ?? '';

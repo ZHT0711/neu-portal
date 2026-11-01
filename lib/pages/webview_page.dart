@@ -307,11 +307,25 @@ class _WebViewPageState extends State<WebViewPage> {
         ua = _unwrapJsResult(await _controller.runJavaScriptReturningResult('navigator.userAgent'));
       } catch (_) {}
       _diag('UA: $ua');
+      // 门户页面内直接读取用户信息（真浏览器环境，WAF 不拦）
+      var userInfoJson = '';
+      if (_currentUri.host.contains('personal.neu.edu.cn') ||
+          _currentUri.path.contains('/portal')) {
+        try {
+          userInfoJson = _unwrapJsResult(await _controller.runJavaScriptReturningResult(
+            'JSON.stringify(window.userInfoDSL || {})',
+          ));
+          _diag('userInfoDSL: ${userInfoJson.isEmpty || userInfoJson == '{}' ? '未捕获' : '已捕获'}');
+        } catch (_) {
+          _diag('userInfoDSL 读取失败');
+        }
+      }
       final ok = await state.completeWebLogin(
         cookies
             .map((c) => (name: c.name, value: c.value, domain: c.domain, path: c.path))
             .toList(),
         userAgent: ua,
+        userInfoJson: userInfoJson,
       );
       if (!mounted) return;
       if (ok) {
