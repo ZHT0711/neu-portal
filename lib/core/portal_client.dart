@@ -221,6 +221,9 @@ class PortalClient {
   DateTime? _campusProbeAt;
   bool? _campusProbeResult;
 
+  /// 是否已持有 WebVPN 网关票据（WebView 会话回收后可据此直接进入网关模式）。
+  bool get hasWebVPNTicket => _cookies.hasWebVPNTicket();
+
   @visibleForTesting
   CookieJar get cookies => _cookies;
 
@@ -416,19 +419,20 @@ class PortalClient {
     var resp = await _send(http.Request('GET', Uri.parse(target))
       ..headers.addAll(_headers(Uri.parse(target))));
     var html = await _respText(resp);
-    if (_isWebVPNBlockedPage(resp, html)) {
-      webvpnOn = false;
-      if (!await ensureWebVPN()) {
-        throw PortalException('WebVPN 网关登录失败：请稍后重试，或连接校园网后直接登录');
+    var failed = _isPortalSessionFailure(resp, html);
+    if (failed && !target.contains('webvpn.neu.edu.cn')) {
+      // 校外门户直连会被学校重定向进 WebVPN 网关：切网关模式重试一次
+      webvpnOn = _cookies.hasWebVPNTicket();
+      if (!webvpnOn && !await ensureWebVPN()) {
+        throw PortalException('统一身份认证会话已失效，请重新登录');
       }
       target = maybeWrap(portalBase);
       resp = await _send(http.Request('GET', Uri.parse(target))
         ..headers.addAll(_headers(Uri.parse(target))));
       html = await _respText(resp);
+      failed = _isPortalSessionFailure(resp, html);
     }
-    final finalUrl = resp.request?.url ?? Uri.parse(target);
-    if (finalUrl.host.contains('pass.neu.edu.cn') ||
-        finalUrl.path.contains('/tpass/login')) {
+    if (failed) {
       throw PortalException('统一身份认证会话已失效，请重新登录');
     }
 
@@ -438,11 +442,16 @@ class PortalClient {
     throw PortalException('会话未能正常建立，请重新登录');
   }
 
-  /// WebVPN 网关的拦截页（未携带网关会话时的 403 提示页）。
-  static bool _isWebVPNBlockedPage(http.StreamedResponse resp, String html) {
+  /// 直连门户是否失败：落在 CAS 登录页 / 网关拦截页 / 网关域。
+  static bool _isPortalSessionFailure(http.StreamedResponse resp, String html) {
     final url = resp.request?.url;
-    if (url == null || !url.host.contains('webvpn.neu.edu.cn')) return false;
-    return resp.statusCode == 403 || html.contains('仅用于我校师生在校外登录');
+    final onPass = url != null &&
+        (url.host.contains('pass.neu.edu.cn') ||
+            url.path.contains('/tpass/login'));
+    final onWebVPN = url != null && url.host.contains('webvpn.neu.edu.cn');
+    final gate = onWebVPN &&
+        (resp.statusCode == 403 || html.contains('仅用于我校师生在校外登录'));
+    return onPass || gate || html.contains('当前设备需进行身份验证');
   }
 
   // ── 校园网 / WebVPN ────────────────────────────────────

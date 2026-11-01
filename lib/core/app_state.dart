@@ -266,6 +266,8 @@ class AppState extends ChangeNotifier {
       _client = c;
     }
     c.absorbWebCookies(cookies);
+    // WebView 里已拿到网关票据 → 直接进入网关模式（校外门户必须经网关读取）
+    if (c.hasWebVPNTicket) c.webvpnOn = true;
     loading = true;
     notifyListeners();
     try {
