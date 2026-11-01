@@ -14,6 +14,45 @@ import 'package:neu_portal/core/webvpn.dart';
 import 'package:neu_portal/pages/webview_page.dart';
 
 void main() {
+  testWidgets(
+    'business pages preserve the existing browser session and gateway route',
+    (tester) async {
+      final previous = WebViewPlatform.instance;
+      final fake = _FakeWebPlatform();
+      WebViewPlatform.instance = fake;
+      final state = _BrowserSessionState()..mode = SessionMode.live;
+      try {
+        await tester.pumpWidget(
+          AppScope(
+            state: state,
+            child: const MaterialApp(
+              home: WebViewPage(
+                title: '一卡通',
+                url: 'http://ecard.neu.edu.cn/selflogin/login.aspx',
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          fake.controller!.requests.single.toString(),
+          WebVPN.wrap('http://ecard.neu.edu.cn/selflogin/login.aspx'),
+        );
+        expect(fake.controller!.agents.single, 'Exact browser UA');
+        expect(
+          fake.writtenCookies,
+          isEmpty,
+          reason:
+              'Never overwrite native HttpOnly/path cookies with a flattened snapshot',
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      } finally {
+        if (previous != null) WebViewPlatform.instance = previous;
+        state.dispose();
+      }
+    },
+  );
+
   testWidgets('gateway login visits the portal and waits for populated profile', (
     tester,
   ) async {
@@ -363,6 +402,7 @@ void main() {
 }
 
 class _FakeWebPlatform extends WebViewPlatform {
+  final writtenCookies = <WebViewCookie>[];
   final cookieQueries = <Uri>[];
   List<WebViewCookie> Function(Uri)? cookieResponse;
   @override
@@ -485,6 +525,11 @@ class _FakeCookieManager extends PlatformWebViewCookieManager {
   _FakeCookieManager(super.params, this.host) : super.implementation();
   final _FakeWebPlatform host;
   @override
+  Future<void> setCookie(WebViewCookie cookie) async {
+    host.writtenCookies.add(cookie);
+  }
+
+  @override
   Future<List<WebViewCookie>> getCookies(Uri url) async {
     host.cookieQueries.add(url);
     return host.cookieResponse?.call(url) ?? [];
@@ -507,4 +552,17 @@ class _CapturingLoginState extends AppState {
     agent = userAgent;
     return true;
   }
+}
+
+class _BrowserSessionState extends AppState {
+  @override
+  bool get usesWebSession => true;
+  @override
+  String? get webUserAgent => 'Exact browser UA';
+  @override
+  String browserURL(String url) => WebVPN.wrap(url);
+  @override
+  Map<String, Map<String, String>> cookieSnapshot() => {
+    'webvpn.neu.edu.cn': {'SESS_ID': 'do-not-rewrite'},
+  };
 }

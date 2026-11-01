@@ -34,6 +34,9 @@ class AppState extends ChangeNotifier {
   AppState.withClient(this._client);
 
   PortalClient? _client;
+  bool _usesWebSession = false;
+  bool get usesWebSession => _usesWebSession;
+  String? get webUserAgent => _client?.userAgent;
 
   SessionMode mode = SessionMode.demo;
   PortalUser user = PortalUser.demo;
@@ -245,6 +248,7 @@ class AppState extends ChangeNotifier {
 
   // ── 登录 / 退出 / 免登录 ─────────────────────────────
   Future<void> login(String username, String password) async {
+    _usesWebSession = false;
     loading = true;
     lastError = null;
     needsSecondAuth = false;
@@ -377,6 +381,7 @@ class AppState extends ChangeNotifier {
             email: '',
             avatarUrl: '',
           );
+      _usesWebSession = true;
       mode = SessionMode.live;
       _persistedLive = true;
       needsSecondAuth = false;
@@ -484,6 +489,7 @@ class AppState extends ChangeNotifier {
             avatarUrl: '',
           );
       mode = SessionMode.live;
+      _usesWebSession = true;
       _persistedLive = true;
       lastError = null;
       await p.setInt(_kSession, 1);
@@ -496,6 +502,7 @@ class AppState extends ChangeNotifier {
 
   /// 退出登录：清除会话与保存的凭证（含 WebView 里的网页登录会话）。
   Future<void> logout() async {
+    _usesWebSession = false;
     _client?.dispose();
     _client = null;
     needsSecondAuth = false;
@@ -522,6 +529,7 @@ class AppState extends ChangeNotifier {
   }
 
   void enterDemo() {
+    _usesWebSession = false;
     _client?.dispose();
     _client = null;
     mode = SessionMode.demo;
@@ -640,6 +648,17 @@ class AppState extends ChangeNotifier {
   Map<String, Map<String, String>> cookieSnapshot() {
     final c = _client;
     return c == null ? const {} : c.cookieSnapshot();
+  }
+
+  List<({String name, String value, String domain, String path})> browserCookies() =>
+      _client?.browserCookies() ?? const [];
+
+  String browserURL(String url) => _client?.maybeWrap(url) ?? url;
+
+  void updateWebProfile(PortalUser captured) {
+    if (mode != SessionMode.live || !captured.hasProfile) return;
+    user = user.merge(captured);
+    notifyListeners();
   }
 
   // ── 派生数据 ────────────────────────────────────────

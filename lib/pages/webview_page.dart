@@ -14,6 +14,8 @@ import '../core/app_state.dart';
 import '../core/cas_crypto.dart';
 import '../core/ios_glass.dart';
 import '../core/models.dart';
+import '../core/portal_client.dart';
+import '../core/portal_document.dart';
 import '../core/platform_style.dart';
 import '../core/theme.dart';
 import '../core/web_policy.dart';
@@ -57,6 +59,7 @@ class _WebViewPageState extends State<WebViewPage> {
   bool _gatewayAuthTried = false;
   bool _portalLandingTried = false;
   String _capturedUserInfoJson = '';
+  bool _documentHasLoginForm = false;
 
   bool get _onPersonalPortal =>
       (_currentUri.host == 'personal.neu.edu.cn' &&
@@ -140,7 +143,8 @@ class _WebViewPageState extends State<WebViewPage> {
         dark ? const Color(0xFF1C1C1E) : const Color(0xFFFFFFFF),
       );
       await _controller.setUserAgent(
-        PortalWebPolicy.userAgent(ios: isApple, desktop: _desktop),
+        (!widget.loginMode && mounted ? AppScope.of(context).webUserAgent : null) ??
+            PortalWebPolicy.userAgent(ios: isApple, desktop: _desktop),
       );
       final platform = _controller.platform;
       if (platform is WebKitWebViewController) {
@@ -249,6 +253,11 @@ class _WebViewPageState extends State<WebViewPage> {
         state.mode == SessionMode.live &&
         _onPersonalPortal) {
       try {
+        await _tryCaptureUserInfo();
+        if (_capturedUserInfoJson.isNotEmpty && !_documentHasLoginForm) {
+          state.updateWebProfile(PortalUser.fromInfoJson(
+              Map<String, dynamic>.from(jsonDecode(_capturedUserInfoJson) as Map)));
+        }
         final cookies = await captureWebLoginCookies();
         state.absorbWebSession(cookies
             .map((c) => (name: c.name, value: c.value, domain: c.domain, path: c.path))
@@ -266,6 +275,8 @@ class _WebViewPageState extends State<WebViewPage> {
           host == 'portal.neu.edu.cn' ||
           host == 'webvpn.neu.edu.cn';
       if (landedBusiness) {
+        await _tryCaptureUserInfo();
+        if (_documentHasLoginForm || _currentUri.path.contains('/tpass/login')) return;
         // 第一次落到网关：先在页面内完成网关自己的 CAS 登录（CASTGC 就在
         // WebView 里），建立网关会话后再回门户，避免停在网关 403 拦截页。
         if (host == 'webvpn.neu.edu.cn' && !_onPersonalPortal && !_gatewayAuthTried) {
@@ -307,14 +318,23 @@ class _WebViewPageState extends State<WebViewPage> {
 
   /// 在门户页面内读取 window.userInfoDSL（轮询调用，SPA 可能在停稳后才写入）。
   Future<void> _tryCaptureUserInfo() async {
-    if (!mounted || !_onPersonalPortal) return;
+    if (!mounted) return;
     try {
       final v = _unwrapJsResult(await _controller.runJavaScriptReturningResult(
-        'JSON.stringify(window.userInfoDSL || {})',
+        portalDocumentScript,
       ));
       if (v.isNotEmpty && v != '{}') {
-        final next = PortalUser.fromInfoJson(
-            Map<String, dynamic>.from(jsonDecode(v) as Map));
+        final document = Map<String, dynamic>.from(jsonDecode(v) as Map);
+        _documentHasLoginForm = document['loginForm'] == true;
+        if (_documentHasLoginForm) return;
+        var next = PortalUser.fromInfoJson(Map<String, dynamic>.from(
+            (document['user'] is Map ? document['user'] : document) as Map));
+        if (!next.hasCoreProfile && document['sources'] is List) {
+          for (final source in document['sources'] as List) {
+            final found = PortalClient.extractUserFromHtml('$source');
+            if (found != null) next = next.merge(found);
+          }
+        }
         if (!next.hasProfile) return;
         final previous = _capturedUserInfoJson.isEmpty ? null :
             PortalUser.fromInfoJson(Map<String, dynamic>.from(
@@ -355,6 +375,10 @@ class _WebViewPageState extends State<WebViewPage> {
         await Future.delayed(const Duration(milliseconds: 700));
       }
       if (!mounted) return;
+      if (_documentHasLoginForm || _currentUri.path.contains('/tpass/login')) {
+        _webLoginCapturing = false;
+        return;
+      }
       final cookies = <WebViewCookie>[
         ...await _captureCookies(Uri.parse('https://pass.neu.edu.cn/tpass/login')),
         ...await _captureCookies(Uri.parse('https://personal.neu.edu.cn/portal')),
@@ -455,27 +479,16 @@ class _WebViewPageState extends State<WebViewPage> {
   Future<void> _injectCookiesThenLoad() async {
     try {
       final state = AppScope.of(context);
-      if (state.mode == SessionMode.live) {
+      // 网页登录与业务页共用原生 Cookie 存储，不把已有 HttpOnly/路径 Cookie
+      // 降为普通的根路径 Cookie 再覆盖回去。
+      if (state.mode == SessionMode.live && !state.usesWebSession) {
         final manager = WebViewCookieManager();
-        final futures = <Future<void>>[];
-        for (final entry in state.cookieSnapshot().entries) {
-          for (final cookie in entry.value.entries) {
-            futures.add(
-              manager.setCookie(
-                WebViewCookie(
-                  name: cookie.key,
-                  value: cookie.value,
-                  domain: entry.key,
-                  path: '/',
-                ),
-              ),
-            );
-          }
-        }
-        if (futures.isNotEmpty) {
-          await Future.wait(futures);
+        for (final cookie in state.browserCookies()) {
+          await manager.setCookie(WebViewCookie(name: cookie.name,
+              value: cookie.value, domain: cookie.domain, path: cookie.path));
         }
       }
+      if (!widget.loginMode) _currentUri = Uri.parse(state.browserURL(_currentUri.toString()));
     } catch (_) {
       /* Sites may still present their own sign-in screen. */
     }

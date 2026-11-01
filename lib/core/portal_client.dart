@@ -32,6 +32,8 @@ class _CookieEntry {
   final String domain;
   final String path;
   final DateTime? expires;
+  final bool secure;
+  final bool hostOnly;
 
   _CookieEntry({
     required this.name,
@@ -39,6 +41,8 @@ class _CookieEntry {
     required this.domain,
     required this.path,
     this.expires,
+    this.secure = false,
+    this.hostOnly = false,
   });
 
   bool get isExpired {
@@ -51,28 +55,11 @@ class CookieJar {
   /// domain/host -> (cookie name -> _CookieEntry)
   final Map<String, Map<String, _CookieEntry>> _store = {};
 
-  static List<String> splitSetCookie(String raw) {
-    final result = <String>[];
-    var start = 0;
-    var inExpires = false;
-    for (var i = 0; i < raw.length; i++) {
-      if (i >= 8 && raw.substring(i - 8, i).toLowerCase() == 'expires=') {
-        inExpires = true;
-      }
-      if (raw[i] == ';') {
-        inExpires = false;
-      }
-      if (raw[i] == ',') {
-        if (inExpires) continue;
-        final part = raw.substring(start, i).trim();
-        if (part.isNotEmpty) result.add(part);
-        start = i + 1;
-      }
-    }
-    final last = raw.substring(start).trim();
-    if (last.isNotEmpty) result.add(last);
-    return result;
-  }
+  static List<String> splitSetCookie(String raw) => raw
+      .split(RegExp(r',(?=\s*[^\s=;,]+\s*=)'))
+      .map((part) => part.trim())
+      .where((part) => part.isNotEmpty)
+      .toList();
 
   void absorb(Uri uri, http.StreamedResponse resp) {
     absorbRaw(uri, resp.headers['set-cookie']);
@@ -94,6 +81,8 @@ class CookieJar {
 
       var domain = uri.host.toLowerCase();
       var path = '/';
+      var hostOnly = true;
+      var secure = false;
       DateTime? expires;
       var expired = value.isEmpty;
 
@@ -105,10 +94,13 @@ class CookieJar {
         final attrVal = attrEq > 0 ? attr.substring(attrEq + 1).trim() : '';
 
         if (attrName == 'domain' && attrVal.isNotEmpty) {
+          hostOnly = false;
           domain = attrVal.toLowerCase();
           if (domain.startsWith('.')) domain = domain.substring(1);
         } else if (attrName == 'path' && attrVal.isNotEmpty) {
           path = attrVal;
+        } else if (attrName == 'secure') {
+          secure = true;
         } else if (attrName == 'max-age') {
           final sec = int.tryParse(attrVal);
           if (sec != null) {
@@ -121,16 +113,20 @@ class CookieJar {
         }
       }
 
+      if (!_matchesDomain(uri.host, domain)) continue;
+      final key = '$path\u0000$name';
       final domainStore = _store.putIfAbsent(domain, () => {});
       if (expired) {
-        domainStore.remove(name);
+        domainStore.remove(key);
       } else {
-        domainStore[name] = _CookieEntry(
+        domainStore[key] = _CookieEntry(
           name: name,
           value: value,
           domain: domain,
           path: path,
           expires: expires,
+          secure: secure,
+          hostOnly: hostOnly,
         );
       }
     }
@@ -149,31 +145,47 @@ class CookieJar {
   String? headerFor(Uri uri) {
     final host = uri.host.toLowerCase();
     final path = uri.path.isEmpty ? '/' : uri.path;
-    final pairs = <String>[];
-
+    final matches = <_CookieEntry>[];
     for (final entry in _store.entries) {
-      if (_matchesDomain(host, entry.key)) {
-        for (final cookie in entry.value.values) {
-          if (!cookie.isExpired &&
-              (cookie.path == '/' || path.startsWith(cookie.path))) {
-            pairs.add('${cookie.name}=${cookie.value}');
-          }
+      for (final cookie in entry.value.values) {
+        final domainOK =
+            host == cookie.domain ||
+            (!cookie.hostOnly && _matchesDomain(host, cookie.domain));
+        final pathOK =
+            path == cookie.path ||
+            (path.startsWith(cookie.path) &&
+                (cookie.path.endsWith('/') ||
+                    path.substring(cookie.path.length).startsWith('/')));
+        if (domainOK &&
+            pathOK &&
+            !cookie.isExpired &&
+            (!cookie.secure || uri.scheme == 'https')) {
+          matches.add(cookie);
         }
       }
     }
-    return pairs.isEmpty ? null : pairs.join('; ');
+    matches.sort((a, b) => b.path.length.compareTo(a.path.length));
+    return matches.isEmpty
+        ? null
+        : matches.map((c) => '${c.name}=${c.value}').join('; ');
   }
 
-  bool hasCookie(Uri uri, String name) {
-    final host = uri.host.toLowerCase();
-    for (final entry in _store.entries) {
-      if (_matchesDomain(host, entry.key)) {
-        final c = entry.value[name];
-        if (c != null && !c.isExpired && c.value.isNotEmpty) return true;
-      }
-    }
-    return false;
-  }
+  bool hasCookie(Uri uri, String name) =>
+      headerFor(uri)?.split('; ').any((pair) => pair.startsWith('$name=')) ??
+      false;
+
+  List<({String name, String value, String domain, String path})>
+  browserCookies() => [
+    for (final domain in _store.values)
+      for (final c in domain.values)
+        if (!c.isExpired)
+          (
+            name: c.name,
+            value: c.value,
+            domain: c.hostOnly ? c.domain : '.${c.domain}',
+            path: c.path,
+          ),
+  ];
 
   /// 是否已持有 WebVPN 网关票据（wengine / vpn_ticket / webvpn 任一未过期 Cookie）。
   bool hasWebVPNTicket() {
@@ -181,7 +193,10 @@ class CookieJar {
     for (final entry in _store.entries) {
       for (final c in entry.value.values) {
         final n = c.name.toLowerCase();
-        if ((n.contains('wengine') || n.contains('vpn_ticket') || n.contains('webvpn')) &&
+        if ((c.domain == 'webvpn.neu.edu.cn') &&
+            (n.contains('wengine') ||
+                n.contains('vpn_ticket') ||
+                n.contains('webvpn')) &&
             c.value.isNotEmpty &&
             (c.expires == null || now.isBefore(c.expires!))) {
           return true;
@@ -198,8 +213,10 @@ class CookieJar {
       final cookies = _store[domain];
       if (cookies == null) continue;
       for (final name in cookies.keys.toList()) {
-        final n = name.toLowerCase();
-        if (n.contains('wengine') || n.contains('vpn_ticket') || n.contains('webvpn')) {
+        final n = cookies[name]!.name.toLowerCase();
+        if (n.contains('wengine') ||
+            n.contains('vpn_ticket') ||
+            n.contains('webvpn')) {
           cookies.remove(name);
         }
       }
@@ -243,13 +260,20 @@ class PortalClient {
   bool get hasWebVPNTicket => _cookies.hasWebVPNTicket();
 
   /// 是否持有 CAS 会话（CASTGC）。
-  bool get hasCasSession =>
-      _cookies.hasCookie(Uri.parse('https://pass.neu.edu.cn/tpass/login'), 'CASTGC');
+  bool get hasCasSession => _cookies.hasCookie(
+    Uri.parse('https://pass.neu.edu.cn/tpass/login'),
+    'CASTGC',
+  );
 
   @visibleForTesting
   CookieJar get cookies => _cookies;
 
   bool get isLoggedIn => _cookies.hasCookie(Uri.parse(portalBase), 'SESS_ID');
+
+  List<({String name, String value, String domain, String path})>
+  browserCookies() => _cookies.browserCookies();
+
+  String? get userAgent => _userAgentOverride;
 
   /// 供 WebView 注入的会话快照：host → {name: value}。
   Map<String, Map<String, String>> cookieSnapshot() => _cookies.cookieSnapshot();
@@ -274,12 +298,14 @@ class PortalClient {
       };
 
   /// 手动跟随重定向，吸收每一跳的 Set-Cookie。
-  Future<http.StreamedResponse> _send(http.BaseRequest req,
-      {int maxHops = 10}) async {
+  Future<http.StreamedResponse> _send(
+    http.BaseRequest req, {
+    int maxHops = 10,
+  }) async {
     for (var hop = 0; hop < maxHops; hop++) {
       req.followRedirects = false;
       final resp = await _http.send(req).timeout(const Duration(seconds: 10));
-      _cookies.absorb(Uri.parse('${req.url.scheme}://${req.url.host}'), resp);
+      _cookies.absorb(req.url, resp);
       final loc = resp.headers['location'];
       if (resp.statusCode >= 300 && resp.statusCode < 400 && loc != null) {
         final next = Uri.parse(req.url.toString()).resolve(loc);
@@ -394,8 +420,8 @@ class PortalClient {
   }
 
   /// 从 HTML 中提取 window.userInfoDSL。
-  @visibleForTesting
-  static PortalUser? extractUserFromHtml(String html) => _extractUserFromHtml(html);
+  static PortalUser? extractUserFromHtml(String html) =>
+      _extractUserFromHtml(html);
 
   static PortalUser? _extractUserFromHtml(String html) {
     final idx = html.indexOf('userInfoDSL');
@@ -449,6 +475,7 @@ class PortalClient {
     // 三级自愈：直连 → 网关（现有票据）→ 丢弃票据强制重换（UA 绑定兜底）
     for (var attempt = 0; attempt < 3; attempt++) {
       if (attempt == 2) {
+        if (!hasCasSession) break;
         webvpnOn = false;
         _cookies.removeWebVPNTickets();
       } else {
@@ -458,8 +485,10 @@ class PortalClient {
         throw PortalException('统一身份认证会话已失效，请重新登录');
       }
       final target = maybeWrap(portalBase);
-      final resp = await _send(http.Request('GET', Uri.parse(target))
-        ..headers.addAll(_headers(Uri.parse(target))));
+      final resp = await _send(
+        http.Request('GET', Uri.parse(target))
+          ..headers.addAll(_headers(Uri.parse(target))),
+      );
       final html = await _respText(resp);
       if (!_isPortalSessionFailure(resp, html)) {
         final user = _extractUserFromHtml(html);
