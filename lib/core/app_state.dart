@@ -274,19 +274,38 @@ class AppState extends ChangeNotifier {
     loading = true;
     notifyListeners();
     try {
-      if (!c.isLoggedIn) {
-        if (!await c.ensureWebVPN()) {
-          lastError = 'WebVPN 网关登录失败：请稍后重试，或连接校园网后直接登录';
-          return false;
-        }
+      // 会话有效性：CASTGC / 门户 SESS_ID / 网关票据 任一在手即视为已登录
+      if (!c.isLoggedIn && !c.hasCasSession && !c.hasWebVPNTicket) {
+        lastError = '未能取得登录会话，请在页面中完成登录';
+        return false;
       }
-      final u = await c.fetchUserInfo();
-      user = u;
+      if (!c.webvpnOn && !await c.ensureWebVPN()) {
+        // 换票失败不阻断：校内直连场景仍可用
+      }
+      // 用户信息：门户 HTML 可能被 WAF 拦截，失败不阻断登录
+      // （nidong 式：核心数据走各业务 JSON 接口，用户信息尽力而为）
+      PortalUser? u;
+      try {
+        u = await c.fetchUserInfo();
+      } catch (_) {
+        u = null;
+      }
+      final p = await SharedPreferences.getInstance();
+      final sid = p.getString('cas.user') ?? '';
+      user = u ??
+          PortalUser(
+            uid: '',
+            name: sid.isEmpty ? '东大师生' : sid,
+            sid: sid,
+            identity: '',
+            department: '',
+            email: '',
+            avatarUrl: '',
+          );
       mode = SessionMode.live;
       _persistedLive = true;
       needsSecondAuth = false;
       lastError = null;
-      final p = await SharedPreferences.getInstance();
       await p.setInt(_kSession, 1);
       await _refreshLive();
       return true;

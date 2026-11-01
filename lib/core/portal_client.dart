@@ -240,6 +240,10 @@ class PortalClient {
   /// 是否已持有 WebVPN 网关票据（WebView 会话回收后可据此直接进入网关模式）。
   bool get hasWebVPNTicket => _cookies.hasWebVPNTicket();
 
+  /// 是否持有 CAS 会话（CASTGC）。
+  bool get hasCasSession =>
+      _cookies.hasCookie(Uri.parse('https://pass.neu.edu.cn/tpass/login'), 'CASTGC');
+
   @visibleForTesting
   CookieJar get cookies => _cookies;
 
@@ -665,7 +669,8 @@ class PortalClient {
 
   Future<Map<String, dynamic>> _api(String path,
       {Map<String, Object?>? query}) async {
-    final uri = Uri.parse('$portalBase/$path')
+    // 校外（网关模式）时门户 JSON 接口也必须经网关
+    final uri = Uri.parse(maybeWrap('$portalBase/$path'))
         .replace(queryParameters: query);
     final resp = await _send(http.Request('GET', uri)
       ..headers.addAll(_headers(uri, xhr: true)));
@@ -875,7 +880,7 @@ class PortalClient {
   }
 
   Future<String> _jwxtLikeGet(String ep) async {
-    final u = '$portalBase/$ep';
+    final u = maybeWrap('$portalBase/$ep');
     final req = http.Request('GET', Uri.parse(u))
       ..headers.addAll(_headers(Uri.parse(u)));
     final resp = await _send(req);
