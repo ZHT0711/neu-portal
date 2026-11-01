@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -5,10 +7,119 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
 import 'package:neu_portal/core/app_state.dart';
 import 'package:neu_portal/core/ios_glass.dart';
+import 'package:neu_portal/core/models.dart';
 import 'package:neu_portal/core/web_policy.dart';
+import 'package:neu_portal/core/web_cookies.dart';
+import 'package:neu_portal/core/webvpn.dart';
 import 'package:neu_portal/pages/webview_page.dart';
 
 void main() {
+  testWidgets('gateway login visits the portal and waits for populated profile', (
+    tester,
+  ) async {
+    final previous = WebViewPlatform.instance;
+    final fake = _FakeWebPlatform();
+    WebViewPlatform.instance = fake;
+    final state = _CapturingLoginState();
+    try {
+      await tester.pumpWidget(
+        AppScope(
+          state: state,
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const WebViewPage(
+                        title: '登录',
+                        url: WebVPN.base,
+                        loginMode: true,
+                      ),
+                    ),
+                  ),
+                  child: const Text('网页登录'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('网页登录'));
+      await tester.pump();
+      // The fake does not finish navigation until the next microtask, so the
+      // JavaScript handler is installed before the portal polls its profile.
+      var reads = 0;
+      fake.controller!.javascript = (script) async {
+        if (script == 'navigator.userAgent') return 'Test WebKit';
+        if (!fake.controller!.url!.startsWith(WebVPN.wrap(kPortalBase))) {
+          return '{}';
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        reads++;
+        if (reads == 1) return '{"uid":"42"}';
+        if (reads == 2) return '{"uid":"42","name":"测试同学"}';
+        // WebKit can return a JSON-quoted JSON string.
+        return jsonEncode(
+          '{"uid":"42","name":"测试同学","xgh":"20260042","identity":"本科生","depart":"计算机学院","email":"test@example.edu"}',
+        );
+      };
+      for (var i = 0; i < 30 && state.captured == null; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      await tester.pumpAndSettle();
+      expect(fake.controller!.requests.map((u) => u.toString()), [
+        WebVPN.base,
+        WebVPN.casService,
+        WebVPN.wrap(kPortalBase),
+      ]);
+      expect(state.captured?.hasCoreProfile, isTrue);
+      expect(state.captured?.email, 'test@example.edu');
+      expect(state.agent, 'Test WebKit');
+      expect(find.byType(WebViewPage), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    } finally {
+      if (previous != null) WebViewPlatform.instance = previous;
+      state.dispose();
+    }
+  });
+
+  test(
+    'native cookie handoff normalizes Android URL domains and reads proxy paths',
+    () async {
+      final previous = WebViewPlatform.instance;
+      final fake = _FakeWebPlatform();
+      WebViewPlatform.instance = fake;
+      fake.cookieResponse = (uri) => [
+        WebViewCookie(
+          name: 'SESS_ID',
+          value: 'test-session',
+          domain: uri.toString(),
+        ),
+        const WebViewCookie(
+          name: 'CASTGC',
+          value: 'test-cas',
+          domain: '.neu.edu.cn',
+          path: '/tpass',
+        ),
+      ];
+      try {
+        final cookies = await captureWebViewCookies(Uri.parse(kPortalBase));
+        expect(cookies.first.domain, 'personal.neu.edu.cn');
+        expect(cookies.last.domain, '.neu.edu.cn');
+        expect(cookies.last.path, '/tpass');
+        await captureWebLoginCookies();
+        expect(
+          fake.cookieQueries,
+          contains(Uri.parse(WebVPN.wrap(kPortalBase))),
+        );
+      } finally {
+        if (previous != null) WebViewPlatform.instance = previous;
+      }
+    },
+  );
+
   test('explicit HTTP entries keep protocol, ports and SSO query parameters', () {
     for (final entry in [
       'http://ecard.neu.edu.cn/selflogin/login.aspx',
@@ -213,7 +324,7 @@ void main() {
         controller.hasHistory = true;
         controller.redirect(controller.url!);
         await tester.pumpAndSettle();
-        await tester.tap(find.byTooltip('返回上一页'));
+        await tester.tap(find.byTooltip('后退'));
         await tester.pumpAndSettle();
         expect(controller.backCalls, 1);
         expect(
@@ -252,6 +363,12 @@ void main() {
 }
 
 class _FakeWebPlatform extends WebViewPlatform {
+  final cookieQueries = <Uri>[];
+  List<WebViewCookie> Function(Uri)? cookieResponse;
+  @override
+  PlatformWebViewCookieManager createPlatformCookieManager(
+    PlatformWebViewCookieManagerCreationParams params,
+  ) => _FakeCookieManager(params, this);
   _FakeController? controller;
   _FakeNavigation? delegate;
   @override
@@ -276,6 +393,11 @@ class _FakeController extends PlatformWebViewController {
   String? url;
   bool hasHistory = false;
   int backCalls = 0;
+  Future<Object> Function(String)? javascript;
+
+  @override
+  Future<Object> runJavaScriptReturningResult(String script) async =>
+      javascript == null ? '{}' : await javascript!(script);
   void redirect(String next) {
     url = next;
     host.delegate!.urlChange?.call(UrlChange(url: next));
@@ -357,4 +479,32 @@ class _FakeWidget extends PlatformWebViewWidget {
   _FakeWidget(super.params) : super.implementation();
   @override
   Widget build(BuildContext context) => const SizedBox.expand();
+}
+
+class _FakeCookieManager extends PlatformWebViewCookieManager {
+  _FakeCookieManager(super.params, this.host) : super.implementation();
+  final _FakeWebPlatform host;
+  @override
+  Future<List<WebViewCookie>> getCookies(Uri url) async {
+    host.cookieQueries.add(url);
+    return host.cookieResponse?.call(url) ?? [];
+  }
+}
+
+class _CapturingLoginState extends AppState {
+  PortalUser? captured;
+  String agent = '';
+
+  @override
+  Future<bool> completeWebLogin(
+    List<({String name, String value, String domain, String path})> cookies, {
+    String userAgent = '',
+    String userInfoJson = '',
+  }) async {
+    captured = PortalUser.fromInfoJson(
+      jsonDecode(userInfoJson) as Map<String, dynamic>,
+    );
+    agent = userAgent;
+    return true;
+  }
 }

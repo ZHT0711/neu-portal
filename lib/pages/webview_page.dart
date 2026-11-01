@@ -8,15 +8,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../core/app_state.dart';
 import '../core/cas_crypto.dart';
 import '../core/ios_glass.dart';
+import '../core/models.dart';
 import '../core/platform_style.dart';
 import '../core/theme.dart';
 import '../core/web_policy.dart';
+import '../core/web_cookies.dart';
 import '../core/webvpn.dart';
 import 'login_page.dart';
 import 'shell.dart';
@@ -54,7 +55,24 @@ class _WebViewPageState extends State<WebViewPage> {
   bool _webLoginCapturing = false;
   bool _webLoginDone = false;
   bool _gatewayAuthTried = false;
+  bool _portalLandingTried = false;
   String _capturedUserInfoJson = '';
+
+  bool get _onPersonalPortal =>
+      (_currentUri.host == 'personal.neu.edu.cn' &&
+          _currentUri.path.startsWith('/portal')) ||
+      (_currentUri.host == 'webvpn.neu.edu.cn' &&
+          _currentUri.path.startsWith(Uri.parse(WebVPN.wrap(kPortalBase)).path));
+
+  bool get _hasCoreProfile {
+    try {
+      return PortalUser.fromInfoJson(
+          Map<String, dynamic>.from(jsonDecode(_capturedUserInfoJson) as Map))
+          .hasCoreProfile;
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// 网页登录模式的导航诊断日志（发给开发者定位校外链路用）。
   final List<String> _diagLog = [];
@@ -229,10 +247,9 @@ class _WebViewPageState extends State<WebViewPage> {
     final state = AppScope.of(context);
     if (!widget.loginMode &&
         state.mode == SessionMode.live &&
-        _currentUri.host == 'personal.neu.edu.cn') {
+        _onPersonalPortal) {
       try {
-        final cookies = await _captureCookies(
-            Uri.parse('https://personal.neu.edu.cn/portal'));
+        final cookies = await captureWebLoginCookies();
         state.absorbWebSession(cookies
             .map((c) => (name: c.name, value: c.value, domain: c.domain, path: c.path))
             .toList());
@@ -251,10 +268,20 @@ class _WebViewPageState extends State<WebViewPage> {
       if (landedBusiness) {
         // 第一次落到网关：先在页面内完成网关自己的 CAS 登录（CASTGC 就在
         // WebView 里），建立网关会话后再回门户，避免停在网关 403 拦截页。
-        if (host == 'webvpn.neu.edu.cn' && !_gatewayAuthTried) {
+        if (host == 'webvpn.neu.edu.cn' && !_onPersonalPortal && !_gatewayAuthTried) {
           _gatewayAuthTried = true;
           _diag('网关：尝试页面内网关 CAS 登录');
           await _load(Uri.parse(WebVPN.casService));
+          return;
+        }
+        // 网关首页/旧门户没有一号通 DSL，也未必建立了门户 SESS_ID。
+        // 网关认证完成后必须在同一 WebView 中进入新门户，再交接会话。
+        if (!_onPersonalPortal && !_portalLandingTried) {
+          _portalLandingTried = true;
+          final target = _gatewayAuthTried || host == 'webvpn.neu.edu.cn'
+              ? WebVPN.wrap(kPortalBase) : kPortalBase;
+          _diag('进入一号通门户以同步个人资料与服务');
+          await _load(Uri.parse(target));
           return;
         }
         _diag('落地 $host，开始回收会话');
@@ -263,7 +290,8 @@ class _WebViewPageState extends State<WebViewPage> {
       }
     }
     if (PortalWebPolicy.isCasLogin(_currentUri)) {
-      final creds = await AppScope.of(context).storedCredentials();
+      if (!mounted) return;
+      final creds = await state.storedCredentials();
       final ok = await _autoCasLogin();
       // 只有确实用已存凭据尝试过自动登录且失败时才是「会话失效」；
       // 全新登录页（未存凭据/网页登录模式）不显示过期横幅。
@@ -279,13 +307,19 @@ class _WebViewPageState extends State<WebViewPage> {
 
   /// 在门户页面内读取 window.userInfoDSL（轮询调用，SPA 可能在停稳后才写入）。
   Future<void> _tryCaptureUserInfo() async {
-    if (_capturedUserInfoJson.isNotEmpty) return;
+    if (!mounted || !_onPersonalPortal) return;
     try {
       final v = _unwrapJsResult(await _controller.runJavaScriptReturningResult(
         'JSON.stringify(window.userInfoDSL || {})',
       ));
       if (v.isNotEmpty && v != '{}') {
-        _capturedUserInfoJson = v;
+        final next = PortalUser.fromInfoJson(
+            Map<String, dynamic>.from(jsonDecode(v) as Map));
+        if (!next.hasProfile) return;
+        final previous = _capturedUserInfoJson.isEmpty ? null :
+            PortalUser.fromInfoJson(Map<String, dynamic>.from(
+                jsonDecode(_capturedUserInfoJson) as Map));
+        _capturedUserInfoJson = jsonEncode((previous?.merge(next) ?? next).toInfoJson());
         _diag('userInfoDSL 已捕获');
       }
     } catch (_) {}
@@ -305,21 +339,7 @@ class _WebViewPageState extends State<WebViewPage> {
 
   /// 读取 WebView 会话 Cookie（iOS: WKHTTPCookieStore；Android: CookieManager）。
   Future<List<WebViewCookie>> _captureCookies(Uri uri) async {
-    try {
-      if (isApple) {
-        final manager =
-            WebKitWebViewCookieManager(WebKitWebViewCookieManagerCreationParams());
-        return await manager.getCookies(uri);
-      }
-      final manager = AndroidWebViewCookieManager(
-        AndroidWebViewCookieManagerCreationParams.fromPlatformWebViewCookieManagerCreationParams(
-          const PlatformWebViewCookieManagerCreationParams(),
-        ),
-      );
-      return await manager.getCookies(uri);
-    } catch (_) {
-      return const [];
-    }
+    return captureWebViewCookies(uri);
   }
 
   /// 吸收会话并完成登录，成功后退出本页回到主界面。
@@ -328,19 +348,22 @@ class _WebViewPageState extends State<WebViewPage> {
     _webLoginCapturing = true;
     final state = AppScope.of(context);
     try {
+      // 必须等待 JS 调用完成；非空的初始对象不代表资料已填充完整。
+      for (var i = 0; i < 6 && mounted; i++) {
+        await _tryCaptureUserInfo();
+        if (_hasCoreProfile) break;
+        await Future.delayed(const Duration(milliseconds: 700));
+      }
+      if (!mounted) return;
       final cookies = <WebViewCookie>[
         ...await _captureCookies(Uri.parse('https://pass.neu.edu.cn/tpass/login')),
         ...await _captureCookies(Uri.parse('https://personal.neu.edu.cn/portal')),
         ...await _captureCookies(Uri.parse('https://webvpn.neu.edu.cn/')),
+        if (_currentUri.host == 'webvpn.neu.edu.cn')
+          ...await _captureCookies(_currentUri),
         ...await _captureCookies(Uri.parse('https://portal.neu.edu.cn/tp_up/')),
       ];
       _diag('回收 ${cookies.length} 枚 Cookie：${cookies.map((c) => '${c.domain}#${c.name}').take(14).join(', ')}');
-      // 等门户 SPA 写入 userInfoDSL（最多约 4 秒）
-      for (var i = 0; i < 6 && _capturedUserInfoJson.isEmpty; i++) {
-        _tryCaptureUserInfo();
-        if (_capturedUserInfoJson.isNotEmpty) break;
-        await Future.delayed(const Duration(milliseconds: 700));
-      }
       _diag('userInfoDSL: ${_capturedUserInfoJson.isEmpty ? '未捕获' : '已捕获'}');
       String ua = '';
       try {

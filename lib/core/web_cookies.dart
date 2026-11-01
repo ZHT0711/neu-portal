@@ -7,32 +7,32 @@ library;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:webview_flutter_android/webview_flutter_android.dart';
-import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
-
-import 'platform_style.dart';
+import 'webvpn.dart';
 
 /// 捕获系统 WebView 中指定站点相关的全部 Cookie。
 Future<List<WebViewCookie>> captureWebViewCookies(Uri uri) async {
   try {
     if (kIsWeb) return const [];
-    if (isApple) {
-      final manager =
-          WebKitWebViewCookieManager(WebKitWebViewCookieManagerCreationParams());
-      return await manager.getCookies(uri);
-    }
-    final manager = AndroidWebViewCookieManager(
-      AndroidWebViewCookieManagerCreationParams.fromPlatformWebViewCookieManagerCreationParams(
-        const PlatformWebViewCookieManagerCreationParams(),
-      ),
-    );
-    return await manager.getCookies(uri);
+    // 使用实际 WebView 引擎，不能让用户选择的界面风格决定 Cookie 存储。
+    final cookies = await WebViewCookieManager().getCookies(domain: uri);
+    return cookies.map((c) {
+      // Android 插件返回的 domain 是完整请求 URL；HTTP Cookie 罐需要主机名。
+      final domain = Uri.tryParse(c.domain);
+      return WebViewCookie(
+        name: c.name,
+        value: c.value,
+        domain: domain != null && domain.hasScheme && domain.host.isNotEmpty
+            ? domain.host
+            : c.domain,
+        path: c.path,
+      );
+    }).toList();
   } catch (_) {
     return const [];
   }
 }
 
-/// 汇总四个校内域名的 WebView Cookie（去重按 name+domain）。
+/// 汇总登录相关 Cookie（含网关代理路径，按 name+domain+path 去重）。
 Future<List<WebViewCookie>> captureWebLoginCookies() async {
   final out = <WebViewCookie>[];
   final seen = <String>{};
@@ -41,9 +41,10 @@ Future<List<WebViewCookie>> captureWebLoginCookies() async {
     Uri.parse('https://personal.neu.edu.cn/portal'),
     Uri.parse('https://webvpn.neu.edu.cn/'),
     Uri.parse('https://portal.neu.edu.cn/tp_up/'),
+    Uri.parse(WebVPN.wrap('https://personal.neu.edu.cn/portal')),
   ]) {
     for (final c in await captureWebViewCookies(uri)) {
-      final key = '${c.domain}|${c.name}';
+      final key = '${c.domain}|${c.path}|${c.name}';
       if (c.name.isEmpty || c.value.isEmpty || !seen.add(key)) continue;
       out.add(c);
     }

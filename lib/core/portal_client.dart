@@ -226,10 +226,12 @@ class CookieJar {
 }
 
 class PortalClient {
+  PortalClient({http.Client? httpClient}) : _http = httpClient ?? http.Client();
+
   static const passBase = 'https://pass.neu.edu.cn';
   static const portalBase = 'https://personal.neu.edu.cn/portal';
 
-  final http.Client _http = http.Client();
+  final http.Client _http;
   final CookieJar _cookies = CookieJar();
 
   /// WebVPN 网关模式：校外门户 HTML 会被学校重定向进网关，开启后门户/教务请求改走网关。
@@ -430,7 +432,8 @@ class PortalClient {
             try {
               final decoded = jsonDecode(jsonStr);
               if (decoded is Map<String, dynamic>) {
-                return PortalUser.fromInfoJson(decoded);
+                final user = PortalUser.fromInfoJson(decoded);
+                return user.hasProfile ? user : null;
               }
             } catch (_) {}
             break;
@@ -443,10 +446,6 @@ class PortalClient {
 
   /// 从门户首页 HTML 中解析 window.userInfoDSL。
   Future<PortalUser> fetchUserInfo() async {
-    var target = maybeWrap(portalBase);
-    var resp = await _send(http.Request('GET', Uri.parse(target))
-      ..headers.addAll(_headers(Uri.parse(target))));
-    var html = await _respText(resp);
     // 三级自愈：直连 → 网关（现有票据）→ 丢弃票据强制重换（UA 绑定兜底）
     for (var attempt = 0; attempt < 3; attempt++) {
       if (attempt == 2) {
@@ -458,10 +457,10 @@ class PortalClient {
       if (attempt >= 1 && !await ensureWebVPN()) {
         throw PortalException('统一身份认证会话已失效，请重新登录');
       }
-      target = maybeWrap(portalBase);
-      resp = await _send(http.Request('GET', Uri.parse(target))
+      final target = maybeWrap(portalBase);
+      final resp = await _send(http.Request('GET', Uri.parse(target))
         ..headers.addAll(_headers(Uri.parse(target))));
-      html = await _respText(resp);
+      final html = await _respText(resp);
       if (!_isPortalSessionFailure(resp, html)) {
         final user = _extractUserFromHtml(html);
         if (user != null) return user;

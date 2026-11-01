@@ -97,7 +97,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             fit: BoxFit.cover,
                             errorBuilder: (_, _, _) => Center(
                               child: Text(
-                                u.name.characters.first,
+                                u.displayName.characters.first,
                                 style: TextStyle(
                                   fontSize: 23,
                                   fontWeight: FontWeight.w800,
@@ -108,7 +108,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           )
                         : Center(
                             child: Text(
-                              u.name.characters.first,
+                              u.displayName.characters.first,
                               style: TextStyle(
                                 fontSize: 23,
                                 fontWeight: FontWeight.w800,
@@ -123,7 +123,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          u.name,
+                          u.displayName,
                           style: Theme.of(context)
                               .textTheme
                               .titleLarge
@@ -133,7 +133,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          '${u.sid} · ${u.identity} · ${u.department}',
+                          u.details.isEmpty ? '个人资料待同步' : u.details,
                           style: Theme.of(context)
                               .textTheme
                               .bodySmall
@@ -143,9 +143,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          u.email,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                          u.email.isEmpty ? '邮箱暂未提供' : u.email,
                           style: Theme.of(context)
                               .textTheme
                               .labelSmall
@@ -185,7 +183,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           fit: BoxFit.cover,
                           errorBuilder: (_, _, _) => Center(
                             child: Text(
-                              u.name.characters.first,
+                              u.displayName.characters.first,
                               style: TextStyle(
                                 fontSize: 23,
                                 fontWeight: FontWeight.w800,
@@ -196,7 +194,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         )
                       : Center(
                           child: Text(
-                            u.name.characters.first,
+                            u.displayName.characters.first,
                             style: TextStyle(
                               fontSize: 23,
                               fontWeight: FontWeight.w800,
@@ -211,7 +209,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        u.name,
+                        u.displayName,
                         style: Theme.of(context)
                             .textTheme
                             .titleLarge
@@ -221,7 +219,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        '${u.sid} · ${u.identity} · ${u.department}',
+                        u.details.isEmpty ? '个人资料待同步' : u.details,
                         style: Theme.of(context)
                             .textTheme
                             .bodySmall
@@ -231,9 +229,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        u.email,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        u.email.isEmpty ? '邮箱暂未提供' : u.email,
                         style: Theme.of(context)
                             .textTheme
                             .labelSmall
@@ -248,6 +244,17 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
       ),
+          if (s.mode == SessionMode.live)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: s.loading ? null : () async {
+                  await s.refresh();
+                },
+                icon: const Icon(Icons.refresh, size: 18),
+                label: Text(u.hasCoreProfile ? '刷新个人资料' : '重试同步个人资料'),
+              ),
+            ),
           if (s.mode == SessionMode.demo) ...[
             const SizedBox(height: 12),
             StaggerIn(

@@ -33,15 +33,59 @@ class PortalUser {
     required this.avatarUrl,
   });
 
-  factory PortalUser.fromInfoJson(Map<String, dynamic> j) => PortalUser(
-        uid: '${j['uid'] ?? ''}',
-        name: '${j['name'] ?? ''}',
-        sid: '${j['xgh'] ?? ''}',
-        identity: '${j['identity'] ?? ''}',
-        department: '${j['depart'] ?? ''}',
-        email: '${j['email'] ?? ''}',
-        avatarUrl: '${j['avatar'] ?? ''}',
-      );
+  factory PortalUser.fromInfoJson(Map<String, dynamic> j) {
+    String value(String key) => '${j[key] ?? ''}'.trim();
+    return PortalUser(
+      uid: value('uid'),
+      name: value('name'),
+      sid: value('xgh'),
+      identity: value('identity'),
+      department: value('depart'),
+      email: value('email'),
+      avatarUrl: value('avatar'),
+    );
+  }
+
+  /// 网关/未登录页也可能有 DSL 配置，不能把它当作个人资料。
+  bool get hasProfile => name.isNotEmpty || sid.isNotEmpty;
+  bool get hasCoreProfile =>
+      name.isNotEmpty &&
+      sid.isNotEmpty &&
+      identity.isNotEmpty &&
+      department.isNotEmpty;
+
+  String get displayName =>
+      name.isNotEmpty ? name : (sid.isNotEmpty ? sid : '东大师生');
+  String get details =>
+      [sid, identity, department].where((v) => v.isNotEmpty).join(' · ');
+
+  Map<String, dynamic> toInfoJson() => {
+    'uid': uid,
+    'name': name,
+    'xgh': sid,
+    'identity': identity,
+    'depart': department,
+    'email': email,
+    'avatar': avatarUrl,
+  };
+
+  /// SPA 分阶段填充资料；空字段不应抹掉已有信息，换账号则完全替换。
+  PortalUser merge(PortalUser newer) {
+    if ((uid.isNotEmpty && newer.uid.isNotEmpty && uid != newer.uid) ||
+        (sid.isNotEmpty && newer.sid.isNotEmpty && sid != newer.sid)) {
+      return newer;
+    }
+    String pick(String old, String next) => next.isNotEmpty ? next : old;
+    return PortalUser(
+      uid: pick(uid, newer.uid),
+      name: pick(name, newer.name),
+      sid: pick(sid, newer.sid),
+      identity: pick(identity, newer.identity),
+      department: pick(department, newer.department),
+      email: pick(email, newer.email),
+      avatarUrl: pick(avatarUrl, newer.avatarUrl),
+    );
+  }
 
   static const demo = PortalUser(
     uid: '0',
@@ -276,6 +320,36 @@ class PortalApp {
     }
     return '';
   }
+}
+
+/// 服务目录是入口集合；公开/移动端短列表不能删除已有入口。
+/// 保留基准目录的顺序（含 VPN），新响应优先更新同一应用的非空字段。
+List<PortalApp> mergePortalApps(Iterable<List<PortalApp>> catalogs) {
+  final merged = <String, PortalApp>{};
+  for (final catalog in catalogs) {
+    for (final app in catalog) {
+      if (app.name.trim().isEmpty) continue;
+      final key = app.appId.isNotEmpty
+          ? 'id:${app.appId}'
+          : 'name:${app.name.trim()}';
+      final old = merged[key];
+      String pick(String next, String previous) =>
+          next.isNotEmpty ? next : previous;
+      merged[key] = old == null
+          ? app
+          : PortalApp(
+              name: app.name,
+              appId: app.appId,
+              url: pick(app.url, old.url),
+              mobileUrl: pick(app.mobileUrl, old.mobileUrl),
+              iconUrl: pick(app.iconUrl, old.iconUrl),
+              desc: pick(app.desc, old.desc),
+              category: pick(app.category, old.category),
+              visits: app.visits,
+            );
+    }
+  }
+  return merged.values.toList();
 }
 
 class TodoItem {

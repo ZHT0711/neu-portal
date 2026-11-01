@@ -28,6 +28,11 @@ enum LiquidTabBarMode {
 }
 
 class AppState extends ChangeNotifier {
+  AppState();
+
+  @visibleForTesting
+  AppState.withClient(this._client);
+
   PortalClient? _client;
 
   SessionMode mode = SessionMode.demo;
@@ -181,7 +186,7 @@ class AppState extends ChangeNotifier {
     setPlatformPreference(platformStyle);
     _persistedLive = (p.getInt(_kSession) ?? 0) == 1;
     final cachedApps = await _loadAppsCache();
-    if (cachedApps.isNotEmpty) apps = cachedApps;
+    if (cachedApps.isNotEmpty) apps = mergePortalApps([demoApps, cachedApps]);
     try {
       final raw = p.getString(_kEvents);
       if (raw != null && raw.isNotEmpty) {
@@ -346,16 +351,16 @@ class AppState extends ChangeNotifier {
         try {
           final decoded = jsonDecode(userInfoJson);
           if (decoded is Map) {
-            u = PortalUser.fromInfoJson(Map<String, dynamic>.from(decoded));
+            final captured = PortalUser.fromInfoJson(Map<String, dynamic>.from(decoded));
+            if (captured.hasProfile) u = captured;
           }
         } catch (_) {}
       }
-      if (u == null) {
+      if (u == null || !u.hasCoreProfile) {
         try {
-          u = await c.fetchUserInfo();
-        } catch (_) {
-          u = null;
-        }
+          final fetched = await c.fetchUserInfo();
+          u = u?.merge(fetched) ?? fetched;
+        } catch (_) {}
       }
       final p = await SharedPreferences.getInstance();
       if (userAgent.trim().isNotEmpty) {
@@ -505,7 +510,7 @@ class AppState extends ChangeNotifier {
     user = PortalUser.demo;
     scheduleTemplate = demoSchedule;
     final cachedApps = await _loadAppsCache();
-    apps = cachedApps.isNotEmpty ? cachedApps : demoApps;
+    apps = mergePortalApps([demoApps, cachedApps]);
     news = demoNews;
     todos = demoTodos;
     dataCards = demoDataCards;
@@ -527,7 +532,7 @@ class AppState extends ChangeNotifier {
     apps = demoApps;
     unawaited(_loadAppsCache().then((cached) {
       if (cached.isNotEmpty && mode == SessionMode.demo) {
-        apps = cached;
+        apps = mergePortalApps([demoApps, cached]);
         notifyListeners();
       }
     }));
@@ -538,9 +543,16 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _refreshLive() async {
+  Future<void> _refreshLive({bool refreshUser = false}) async {
     final c = _client;
     if (c == null) return;
+    // 登录流程已经读取过资料；手动刷新时再重试，避免失败后连续重复换票。
+    // 拉取 HTML 可能需要换网关票据，先补资料，再并行读取业务接口。
+    if (refreshUser) {
+      try {
+        user = user.merge(await c.fetchUserInfo());
+      } catch (_) {}
+    }
     var ok = 0, total = 0;
     Future<void> guarded(Future<void> Function() f) async {
       total++;
@@ -555,8 +567,9 @@ class AppState extends ChangeNotifier {
       guarded(() async => scheduleTemplate =
           _templateFromOccurrences(await c.fetchWeek(DateTime.now()))),
       guarded(() async {
-        apps = await c.fetchApps();
-        if (apps.isNotEmpty) await _saveAppsCache(apps);
+        final fetched = await c.fetchApps();
+        apps = mergePortalApps([demoApps, await _loadAppsCache(), apps, fetched]);
+        if (fetched.isNotEmpty) await _saveAppsCache(apps);
       }),
       guarded(() async => news = await c.fetchNews()),
       guarded(() async => todos = await c.fetchTodos()),
@@ -567,7 +580,7 @@ class AppState extends ChangeNotifier {
     liveAvailable = total > 0 && ok >= 2;
     if (apps.isEmpty) {
       final cachedApps = await _loadAppsCache();
-      if (cachedApps.isNotEmpty) apps = cachedApps;
+      apps = mergePortalApps([demoApps, cachedApps]);
     }
     lastError = liveAvailable ? null : '实时数据不可用（可能需要校园网或 VPN），已展示离线数据';
     notifyListeners();
@@ -593,7 +606,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> refresh() async {
     if (mode == SessionMode.live && _client != null) {
-      await _refreshLive();
+      await _refreshLive(refreshUser: true);
     } else {
       notifyListeners();
     }

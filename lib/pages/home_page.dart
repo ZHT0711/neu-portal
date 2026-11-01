@@ -42,8 +42,8 @@ class _HomePageState extends State<HomePage> {
     final now = DateTime.now();
     final today = s.todayAgenda();
     final next = s.nextAgenda();
-    final name = s.user.name.isEmpty ? '同学' : s.user.name;
-    final college = s.user.department.isEmpty ? '未来技术学院' : s.user.department;
+    final name = s.user.displayName;
+    final college = s.user.department.isEmpty ? '东北大学' : s.user.department;
     final greeting = '${Fmt.greeting(now)}，$name';
     final dateText = Fmt.full(now);
 
