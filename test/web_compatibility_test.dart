@@ -4,16 +4,97 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
 import 'package:neu_portal/core/app_state.dart';
+import 'package:neu_portal/core/cas_crypto.dart';
+import 'package:neu_portal/core/portal_client.dart';
 import 'package:neu_portal/core/ios_glass.dart';
 import 'package:neu_portal/core/models.dart';
 import 'package:neu_portal/core/web_policy.dart';
 import 'package:neu_portal/core/web_cookies.dart';
 import 'package:neu_portal/core/webvpn.dart';
 import 'package:neu_portal/pages/webview_page.dart';
+import 'package:neu_portal/core/browser_bridge.dart';
+import 'package:webview_flutter/webview_flutter.dart' as web;
 
 void main() {
+  test('browser bridge correlates replies and rejects cancelled late results', () async {
+    final previous = WebViewPlatform.instance;
+    final fake = _FakeWebPlatform();
+    WebViewPlatform.instance = fake;
+    final controller = web.WebViewController();
+    final bridge = BrowserBridge(controller);
+    try {
+      await bridge.install();
+      final request = bridge.run('return {value: 0};', {});
+      await Future<void>.delayed(Duration.zero);
+      final token = jsonDecode(RegExp(r'const token = ("[^"]+");').firstMatch(fake.controller!.scripts.last)![1]!);
+      fake.controller!.channels['NeuData']!.onMessageReceived(JavaScriptMessage(
+        message: jsonEncode({'token': token, 'value': {'value': 0}})));
+      expect(await request, {'value': 0});
+      final cancelled = bridge.run('return {value: 1};', {});
+      final expectation = expectLater(cancelled, throwsA(isA<PortalException>()));
+      await Future<void>.delayed(Duration.zero);
+      final lateToken = jsonDecode(RegExp(r'const token = ("[^"]+");').firstMatch(fake.controller!.scripts.last)![1]!);
+      bridge.cancel();
+      await expectation;
+      fake.controller!.channels['NeuData']!.onMessageReceived(JavaScriptMessage(
+        message: jsonEncode({'token': lateToken, 'value': {'value': 999}})));
+      expect(fake.controller!.scripts.any((s) => s.contains('forEach(controller => controller.abort())')), isTrue);
+    } finally {
+      if (previous != null) WebViewPlatform.instance = previous;
+    }
+  });
+
+  for (final campus in [true, false]) {
+    testWidgets('web login selects ${campus ? 'direct' : 'VPN'} CAS service', (
+      tester,
+    ) async {
+      final previous = WebViewPlatform.instance;
+      final fake = _FakeWebPlatform();
+      WebViewPlatform.instance = fake;
+      final state = AppState.withClient(
+        PortalClient(
+          httpClient: MockClient(
+            (_) async => http.Response(
+              campus ? 'jwapp' : 'Forbidden',
+              campus ? 200 : 403,
+            ),
+          ),
+        ),
+      );
+      try {
+        await tester.pumpWidget(
+          AppScope(
+            state: state,
+            child: const MaterialApp(
+              home: WebViewPage(
+                title: '登录',
+                url: kNeuCasLoginUrl,
+                loginMode: true,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final login = fake.controller!.requests.single;
+        expect(login.host, 'pass.neu.edu.cn');
+        expect(login.scheme, 'https');
+        expect(
+          login.queryParameters['service'],
+          campus ? kPortalBase : WebVPN.casService,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      } finally {
+        if (previous != null) WebViewPlatform.instance = previous;
+        state.dispose();
+      }
+    });
+  }
+
   testWidgets(
     'business pages preserve the existing browser session and gateway route',
     (tester) async {
@@ -232,7 +313,7 @@ void main() {
       final previous = WebViewPlatform.instance;
       WebViewPlatform.instance = fake;
       debugDefaultTargetPlatformOverride = platform;
-      final state = AppState();
+      final state = AppState()..accessMode = AccessMode.direct;
       String? copied;
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         SystemChannels.platform,
@@ -430,6 +511,8 @@ class _FakeController extends PlatformWebViewController {
   final _FakeWebPlatform host;
   final requests = <Uri>[];
   final agents = <String?>[];
+  final scripts = <String>[];
+  final channels = <String, JavaScriptChannelParams>{};
   String? url;
   bool hasHistory = false;
   int backCalls = 0;
@@ -446,6 +529,12 @@ class _FakeController extends PlatformWebViewController {
 
   @override
   Future<void> setJavaScriptMode(JavaScriptMode mode) async {}
+  @override
+  Future<void> addJavaScriptChannel(JavaScriptChannelParams params) async {
+    channels[params.name] = params;
+  }
+  @override
+  Future<void> runJavaScript(String javaScript) async { scripts.add(javaScript); }
   @override
   Future<void> setBackgroundColor(Color color) async {}
   @override

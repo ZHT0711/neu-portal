@@ -71,6 +71,7 @@ void main() {
         }),
       );
       addTearDown(client.dispose);
+      client.accessMode = AccessMode.webvpn;
       client.absorbWebCookies([
         (
           name: 'wengine_vpn_ticket',
@@ -197,6 +198,8 @@ void main() {
 }
 
 class _SessionClient extends PortalClient {
+  @override
+  Future<bool> isCampusNet() async => false;
   List<PortalApp> appsResponse = [
     const PortalApp(
       name: '教务系统（新）',

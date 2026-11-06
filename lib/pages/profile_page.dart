@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../core/app_state.dart';
+import '../core/portal_client.dart';
 import '../core/platform_style.dart';
 import '../core/ios_glass.dart';
 import '../core/demo_data.dart';
@@ -388,6 +389,36 @@ class _ProfilePageState extends State<ProfilePage> {
               ],
             ),
           ),
+
+          const _GroupTitle('网络线路'),
+          Panel(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.alt_route),
+                  title: const Text('访问线路'),
+                  subtitle: Text(s.switchingAccess ? '正在切换线路…' : s.accessStatus),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: AdaptiveSegments<AccessMode>(
+                      values: const {
+                        AccessMode.auto: '自动',
+                        AccessMode.direct: '直连',
+                        AccessMode.webvpn: 'WebVPN',
+                      },
+                      selected: s.accessMode,
+                      onChanged: s.setAccessMode,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
 
           // 数据
           const SizedBox(height: 20),

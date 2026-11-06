@@ -62,6 +62,12 @@ class _NEUPortalAppState extends State<NEUPortalApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
+    if (lifecycle == AppLifecycleState.resumed) {
+      widget.state.invalidateAccessRoute();
+      if (widget.state.mode == SessionMode.live) {
+        unawaited(widget.state.prepareBrowserAccess());
+      }
+    }
     // 监听应用生命周期（解决 pixez-flutter Issue #1110 锁屏/后台高 CPU 发热缺陷）
     if (lifecycle == AppLifecycleState.paused ||
         lifecycle == AppLifecycleState.inactive ||

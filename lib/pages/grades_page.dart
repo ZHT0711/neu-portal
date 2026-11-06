@@ -8,6 +8,8 @@ import '../core/models.dart';
 import '../core/tab_scroller.dart';
 import '../core/theme.dart';
 import '../widgets/common.dart';
+import '../core/links.dart';
+import 'learning_page.dart';
 
 /// 成绩 — 教务系统真实数据（离线为演示快照）。
 class GradesPage extends StatefulWidget {
@@ -27,6 +29,18 @@ class _GradesPageState extends State<GradesPage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final state = AppScope.of(context);
+    if (state.mode == SessionMode.live && !state.gradesLoading &&
+        state.gradesUpdatedAt == null && state.gradesError == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) state.loadGrades();
+      });
+    }
+  }
+
+  @override
   void dispose() {
     TabScroller.detach(3, _scroll);
     _scroll.dispose();
@@ -40,7 +54,7 @@ class _GradesPageState extends State<GradesPage> {
 
     return Scaffold(
       appBar: isApple ? null : const PageAppBar(title: '成绩'),
-      body: CustomScrollView(
+      body: RefreshIndicator.adaptive(onRefresh: () => s.loadGrades(force: true), child: CustomScrollView(
         controller: _scroll,
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
@@ -68,8 +82,24 @@ class _GradesPageState extends State<GradesPage> {
                 Ds.gutter, isApple ? 12 : 6, Ds.gutter, portalBottomInset(context)),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-          StaggerIn(index: 0, child: _GpaHero(sem: sems.first)),
-          if (s.mode == SessionMode.demo) ...[
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            OutlinedButton.icon(onPressed: s.gradesLoading ? null : () => s.loadGrades(force: true),
+              icon: const Icon(Icons.refresh), label: const Text('刷新成绩')),
+            OutlinedButton.icon(onPressed: () => AppLinks.open(context, 'https://jwxt.neu.edu.cn/jwapp/sys/homeapp/', title: '教务成绩'),
+              icon: const Icon(Icons.open_in_new), label: Text(AppLinks.supportsDataSync ? '网页同步' : '教务网页')),
+            OutlinedButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LearningPage())),
+              icon: const Icon(Icons.assignment_outlined), label: const Text('学习任务')),
+          ]),
+          const SizedBox(height: 14),
+          if (s.gradesLoading) const LinearProgressIndicator(),
+          if (s.gradesError != null) Padding(padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Text(s.gradesError!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+          if (s.failedGradeTerms.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Text('以下学期本次未读取，已有成绩保留\n${s.failedGradeTerms.join('、')}')),
+          if (sems.isNotEmpty) StaggerIn(index: 0, child: _GpaHero(sem: sems.first)),
+          if (sems.isEmpty && !s.gradesLoading) const Padding(padding: EdgeInsets.all(24),
+            child: Text('尚未读取成绩，可刷新重试或在教务网页中同步。')),
+          if (s.mode == SessionMode.demo && s.gradesUpdatedAt == null) ...[
             const SizedBox(height: 14),
             const _DemoNote(),
           ],
@@ -104,7 +134,7 @@ class _GradesPageState extends State<GradesPage> {
             ),
           ),
         ],
-      ),
+      )),
     );
   }
 }

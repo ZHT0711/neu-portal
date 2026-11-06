@@ -12,11 +12,14 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'models.dart';
+import 'app_state.dart';
 import 'web_policy.dart';
 import '../pages/webview_page.dart';
 
 class AppLinks {
   AppLinks._();
+
+  static bool get supportsDataSync => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
   /// 规范化链接：
   /// - 去空白、去首尾引号
@@ -46,17 +49,21 @@ class AppLinks {
       }
       return;
     }
-    final target = uri!;
+    final state = AppScope.of(context);
     final useWeb =
         kIsWeb || Platform.isWindows || Platform.isLinux || Platform.isMacOS;
     if (!useWeb) {
       if (context.mounted) {
-        await Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => WebViewPage(title: title, url: target.toString()),
-        ));
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => WebViewPage(title: title, url: url),
+          ),
+        );
         return;
       }
     }
+    await state.prepareBrowserAccess(force: true);
+    final target = Uri.parse(state.browserURL(url));
     final ok = await launchUrl(
       target,
       mode: LaunchMode.inAppBrowserView,

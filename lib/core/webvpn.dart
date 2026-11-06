@@ -19,14 +19,37 @@ class WebVPN {
   /// WebVPN 的 CAS 登录 service：用公网一号通的 CASTGC 直接换网关票据。
   static const String casService = 'https://webvpn.neu.edu.cn/login?cas_login=true';
 
-  static bool isWrapped(String url) => url.contains('webvpn.neu.edu.cn');
+  static bool isWrapped(String url) =>
+      Uri.tryParse(url)?.host.toLowerCase() == 'webvpn.neu.edu.cn';
+
+  /// 业务系统走所选线路，公网 CAS 与网关自身保持原始地址。
+  static bool supports(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null ||
+        !{'http', 'https'}.contains(uri.scheme) ||
+        uri.userInfo.isNotEmpty) {
+      return false;
+    }
+    final host = uri.host.toLowerCase();
+    if ({'pass.neu.edu.cn', 'webvpn.neu.edu.cn'}.contains(host)) return false;
+    if (host == 'neu.edu.cn' || host.endsWith('.neu.edu.cn')) return true;
+    final parts = host.split('.').map(int.tryParse).toList();
+    return parts.length == 4 &&
+        parts.every((p) => p != null && p >= 0 && p <= 255) &&
+        (parts[0] == 10 ||
+            (parts[0] == 210 && parts[1] == 30) ||
+            (parts[0] == 219 && parts[1] == 216) ||
+            (parts[0] == 172 && parts[1]! >= 16 && parts[1]! <= 31) ||
+            (parts[0] == 192 && parts[1] == 168));
+  }
 
   /// 校园网专属主机。
   static bool isIntranet(String url) {
-    final u = url.toLowerCase();
-    return u.contains('ecard.neu.edu.cn') ||
-        u.contains('jwxt.neu.edu.cn') ||
-        u.contains('219.216.96.4');
+    return {
+      'ecard.neu.edu.cn',
+      'jwxt.neu.edu.cn',
+      '219.216.96.4',
+    }.contains(Uri.tryParse(url)?.host.toLowerCase());
   }
 
   /// 把内网 URL 编成 WebVPN 网关地址；已是网关地址则原样返回。
@@ -34,46 +57,60 @@ class WebVPN {
     final trimmed = raw.trim();
     if (isWrapped(trimmed)) return trimmed;
 
-    var scheme = 'http';
-    var rest = trimmed;
-    if (trimmed.startsWith('https://')) {
-      scheme = 'https';
-      rest = trimmed.substring(8);
-    } else if (trimmed.startsWith('http://')) {
-      rest = trimmed.substring(7);
-    } else if (trimmed.startsWith('//')) {
-      rest = trimmed.substring(2);
+    final normalized = trimmed.startsWith('//')
+        ? 'http:$trimmed'
+        : trimmed.contains('://')
+        ? trimmed
+        : 'http://$trimmed';
+    final uri = Uri.tryParse(normalized);
+    if (uri == null ||
+        !{'http', 'https'}.contains(uri.scheme) ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty) {
+      return raw;
     }
+    final proto = uri.hasPort ? '${uri.scheme}-${uri.port}' : uri.scheme;
+    return '$base/$proto/${encryptHost(uri.host)}${uri.path}'
+        '${uri.hasQuery ? '?${uri.query}' : ''}'
+        '${uri.hasFragment ? '#${uri.fragment}' : ''}';
+  }
 
-    var query = '';
-    final qIndex = rest.indexOf('?');
-    if (qIndex >= 0) {
-      query = rest.substring(qIndex);
-      rest = rest.substring(0, qIndex);
-    }
-
-    var hostPort = rest;
-    var path = '';
-    final slash = rest.indexOf('/');
-    if (slash >= 0) {
-      hostPort = rest.substring(0, slash);
-      path = rest.substring(slash);
-    }
-
-    var host = hostPort;
-    String? port;
-    final colon = hostPort.lastIndexOf(':');
-    if (colon > 0) {
-      final h = hostPort.substring(0, colon);
-      final p = hostPort.substring(colon + 1);
-      if (RegExp(r'^\d+$').hasMatch(p)) {
-        host = h;
-        port = p;
+  /// 还原学校网关链接，供切回直连时复用缓存和页面中的地址。
+  static String unwrap(String raw) {
+    if (!isWrapped(raw)) return raw;
+    final uri = Uri.parse(raw);
+    final match = RegExp(
+      r'^/(https?)(?:-(\d+))?/([0-9a-f]+)(/.*)?$',
+      caseSensitive: false,
+    ).firstMatch(uri.path);
+    if (match == null) return raw;
+    final encoded = match.group(3)!.toLowerCase();
+    final prefix = hexEncode(key);
+    if (!encoded.startsWith(prefix) || encoded.length.isOdd) return raw;
+    final cipher = <int>[
+      for (var i = prefix.length; i < encoded.length; i += 2)
+        int.parse(encoded.substring(i, i + 2), radix: 16),
+    ];
+    var previous = Uint8List.fromList(key);
+    final plain = <int>[];
+    for (var offset = 0; offset < cipher.length; offset += 16) {
+      final block = cipher.sublist(
+        offset,
+        offset + 16 < cipher.length ? offset + 16 : cipher.length,
+      );
+      final stream = _aesEncryptBlock(previous);
+      for (var i = 0; i < block.length; i++) {
+        plain.add(block[i] ^ stream[i]);
       }
+      if (block.length == 16) previous = Uint8List.fromList(block);
     }
-
-    final proto = port == null ? scheme : '$scheme-$port';
-    return '$base/$proto/${encryptHost(host)}$path$query';
+    final host = utf8.decode(plain, allowMalformed: true);
+    if (!RegExp(r'^[a-zA-Z0-9.-]+$').hasMatch(host)) return raw;
+    final port = match.group(2);
+    return '${match.group(1)}://$host${port == null ? '' : ':$port'}'
+        '${match.group(4) ?? ''}'
+        '${uri.hasQuery ? '?${uri.query}' : ''}'
+        '${uri.hasFragment ? '#${uri.fragment}' : ''}';
   }
 
   /// AES-128-CFB128（IV = key）加密主机名 → hex(密钥) + hex(密文)。

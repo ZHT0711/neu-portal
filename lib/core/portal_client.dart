@@ -2,6 +2,7 @@
 /// 手动重定向 + RFC 规范 Cookie 罐，保证 CASTGC / SESS_ID 全程正确跨域传递。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -10,7 +11,10 @@ import 'package:http_parser/http_parser.dart' show parseHttpDate;
 
 import 'cas_crypto.dart';
 import 'models.dart';
+import 'grade_report.dart';
 import 'webvpn.dart';
+
+enum AccessMode { auto, direct, webvpn }
 
 class PortalException implements Exception {
   final String message;
@@ -325,8 +329,27 @@ class PortalClient {
 
   /// WebVPN 网关模式：校外门户 HTML 会被学校重定向进网关，开启后门户/教务请求改走网关。
   bool webvpnOn = false;
+  AccessMode _accessMode = AccessMode.auto;
+  AccessMode get accessMode => _accessMode;
+  set accessMode(AccessMode value) {
+    if (_accessMode == value) return;
+    _accessMode = value;
+    invalidateAccessRoute();
+    webvpnOn = value == AccessMode.webvpn;
+  }
+
   DateTime? _campusProbeAt;
   bool? _campusProbeResult;
+  Future<bool>? _campusProbe;
+  Future<void>? _accessPreparation;
+  int _accessEpoch = 0;
+
+  void invalidateAccessRoute() {
+    _accessEpoch++;
+    _campusProbeAt = null;
+    _campusProbeResult = null;
+    _campusProbe = null;
+  }
 
   /// 是否已持有 WebVPN 网关票据（WebView 会话回收后可据此直接进入网关模式）。
   bool get hasWebVPNTicket => _cookies.hasWebVPNTicket();
@@ -374,6 +397,23 @@ class PortalClient {
         if (_cookies.headerFor(uri) != null) 'Cookie': _cookies.headerFor(uri)!,
       };
 
+  /// Uses the same redirect/cookie/UA transport for platform readers.
+  Future<({String text, Uri url})> readDocument(String url, {
+    String method = 'GET', String? body, String? contentType, String? referer,
+  }) async {
+    final uri = Uri.parse(url);
+    final request = http.Request(method, uri)..headers.addAll(_headers(uri));
+    if (contentType != null) request.headers['Content-Type'] = contentType;
+    if (body != null) request.body = body;
+    if (referer != null) request.headers['Referer'] = referer;
+    final response = await _send(request);
+    final text = await _respText(response).timeout(const Duration(seconds: 20));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw PortalException('平台返回 HTTP ${response.statusCode}');
+    }
+    return (text: text, url: response.request?.url ?? uri);
+  }
+
   /// 手动跟随重定向，吸收每一跳的 Set-Cookie。
   Future<http.StreamedResponse> _send(
     http.BaseRequest req, {
@@ -385,16 +425,27 @@ class PortalClient {
       _cookies.absorb(req.url, resp);
       final loc = resp.headers['location'];
       if (resp.statusCode >= 300 && resp.statusCode < 400 && loc != null) {
-        final next = Uri.parse(req.url.toString()).resolve(loc);
+        final next = Uri.parse(maybeWrap(req.url.resolve(loc).toString()));
+        await resp.stream.drain<void>();
         final isGet = resp.statusCode == 301 ||
             resp.statusCode == 302 ||
             resp.statusCode == 303;
+        final redirectHeaders = _headers(next);
+        if (next.origin == req.url.origin) {
+          for (final name in ['referer', 'origin']) {
+            final value = req.headers[name];
+            if (value != null) redirectHeaders[name] = value;
+          }
+        }
+        if (!isGet && req.headers['content-type'] != null) {
+          redirectHeaders['content-type'] = req.headers['content-type']!;
+        }
         if (isGet && req is http.Request) {
           req = http.Request('GET', next)
-            ..headers.addAll(_headers(next));
+            ..headers.addAll(redirectHeaders);
         } else if (req is http.Request) {
           req = http.Request(req.method, next)
-            ..headers.addAll(_headers(next))
+            ..headers.addAll(redirectHeaders)
             ..bodyBytes = req.bodyBytes;
         } else {
           throw PortalException('无法跟随重定向：$loc');
@@ -414,6 +465,7 @@ class PortalClient {
     if (cleanUsername.isEmpty || cleanPassword.isEmpty) {
       throw PortalException('学号/工号或密码不能为空');
     }
+    await prepareAccess();
     final loginUri = Uri.parse(kNeuCasLoginUrl);
 
     // 1. 取登录页，解析 lt / execution
@@ -550,7 +602,7 @@ class PortalClient {
   /// 从门户首页 HTML 中解析 window.userInfoDSL。
   /// 恢复已有会话时只验证一次；网络/WAF 故障不销毁仍可用于浏览器的票据。
   Future<PortalUser?> validateSavedSession() async {
-    adoptGatewayTicket();
+    await prepareAccess();
     final uri = Uri.parse(maybeWrap(portalBase));
     final resp = await _send(
       http.Request('GET', uri)..headers.addAll(_headers(uri)),
@@ -571,14 +623,13 @@ class PortalClient {
   }
 
   Future<PortalUser> fetchUserInfo() async {
-    // 三级自愈：直连 → 网关（现有票据）→ 丢弃票据强制重换（UA 绑定兜底）
+    await prepareAccess();
+    // 网关票据失效时重换，保留校内和手动直连的线路选择。
     for (var attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0 && !webvpnOn) break;
       if (attempt == 2) {
         if (!hasCasSession) break;
-        webvpnOn = false;
         _cookies.removeWebVPNTickets();
-      } else {
-        adoptGatewayTicket();
       }
       if (attempt >= 1 && !await ensureWebVPN()) {
         throw PortalException('统一身份认证会话已失效，请重新登录');
@@ -611,28 +662,56 @@ class PortalClient {
 
   // ── 校园网 / WebVPN ────────────────────────────────────
 
-  /// 是否校园网：ecard:80 或 jwxt:443 任一可达（结果缓存 10 分钟）。
+  /// 并行探测校内服务，排除网关重定向、拦截页和 Wi-Fi 认证页。
+  /// 短时缓存由回到前台、手动刷新和打开服务时主动失效。
   Future<bool> isCampusNet() async {
     final now = DateTime.now();
     final cached = _campusProbeResult;
     if (_campusProbeAt != null &&
         cached != null &&
-        now.difference(_campusProbeAt!).inMinutes < 10) {
+        now.difference(_campusProbeAt!) < const Duration(seconds: 30)) {
       return cached;
     }
-    final ecard = await _quickReachable('http://ecard.neu.edu.cn/');
-    final ok = ecard || await _quickReachable('https://jwxt.neu.edu.cn/');
-    _campusProbeAt = now;
-    _campusProbeResult = ok;
-    if (ok) webvpnOn = false;
-    return ok;
+    if (_campusProbe != null) return _campusProbe!;
+    final probe = Future.wait([
+      _quickReachable('http://ecard.neu.edu.cn/'),
+      _quickReachable('https://jwxt.neu.edu.cn/'),
+    ]).then((results) => results.any((value) => value));
+    _campusProbe = probe;
+    final result = await probe;
+    if (identical(_campusProbe, probe)) {
+      _campusProbeAt = now;
+      _campusProbeResult = result;
+      _campusProbe = null;
+    }
+    return result;
   }
 
   Future<bool> _quickReachable(String url) async {
     try {
       final req = http.Request('GET', Uri.parse(url))..followRedirects = false;
-      await _http.send(req).timeout(const Duration(seconds: 3));
-      return true; // 任何 HTTP 响应都算可达
+      final resp = await _http.send(req).timeout(const Duration(seconds: 3));
+      final html = await _respText(resp).timeout(const Duration(seconds: 3));
+      if (resp.statusCode >= 300 && resp.statusCode < 400) {
+        final location = resp.headers['location'];
+        if (location == null) return false;
+        final next = req.url.resolve(location);
+        if (WebVPN.isWrapped(next.toString()) ||
+            WebVPN.isWrapped(next.queryParameters['service'] ?? '')) {
+          return false;
+        }
+        return next.host == req.url.host ||
+            (next.scheme == 'https' && next.host == 'pass.neu.edu.cn');
+      }
+      if (resp.statusCode < 200 ||
+          resp.statusCode >= 300 ||
+          html.contains('仅用于我校师生在校外登录')) {
+        return false;
+      }
+      return RegExp(
+        r'教务|强智|一卡通|校园卡|jwapp|selflogin|selfsearch',
+        caseSensitive: false,
+      ).hasMatch(html);
     } catch (_) {
       return false;
     }
@@ -640,18 +719,25 @@ class PortalClient {
 
   /// 用公网一号通的 CASTGC 给 WebVPN 网关换票（必须走公网 pass，不能先开网关首页）。
   Future<bool> ensureWebVPN() async {
-    if (webvpnOn && _cookies.hasWebVPNTicket()) return true;
+    if (accessMode == AccessMode.direct ||
+        (accessMode == AccessMode.auto && _campusProbeResult == true)) {
+      return false;
+    }
+    if (_cookies.hasWebVPNTicket()) {
+      webvpnOn = true;
+      return true;
+    }
     final loginUrl =
         'https://pass.neu.edu.cn/tpass/login?service=${Uri.encodeComponent(WebVPN.casService)}';
     for (var attempt = 0; attempt < 2; attempt++) {
       try {
         final resp = await _send(http.Request('GET', Uri.parse(loginUrl))
           ..headers.addAll(_headers(Uri.parse(loginUrl))));
-        final landed = resp.request?.url.toString() ?? '';
-        if (_cookies.hasWebVPNTicket() ||
-            (landed.contains('webvpn.neu.edu.cn') &&
-                !landed.contains('/tpass/login'))) {
-          webvpnOn = true;
+        await resp.stream.drain<void>();
+        if (_cookies.hasWebVPNTicket()) {
+          webvpnOn =
+              accessMode != AccessMode.direct &&
+              !(accessMode == AccessMode.auto && _campusProbeResult == true);
           return true;
         }
       } catch (_) {}
@@ -662,27 +748,39 @@ class PortalClient {
     return false;
   }
 
-  /// 校外准备：探测校园网，校外则种网关票据。
-  Future<void> prepareAccess() async {
-    if (await isCampusNet()) return;
-    await ensureWebVPN();
+  /// 统一登录、接口和浏览器线路，同一轮并行请求共用探测及换票。
+  Future<void> prepareAccess() {
+    return _accessPreparation ??= _prepareAccess().whenComplete(() {
+      _accessPreparation = null;
+    });
+  }
+
+  Future<void> _prepareAccess() async {
+    final epoch = _accessEpoch;
+    final campus = accessMode == AccessMode.auto ? await isCampusNet() : false;
+    if (epoch != _accessEpoch) return _prepareAccess();
+    webvpnOn = switch (accessMode) {
+      AccessMode.auto => !campus,
+      AccessMode.direct => false,
+      AccessMode.webvpn => true,
+    };
+    if (webvpnOn && (hasCasSession || hasWebVPNTicket)) {
+      await ensureWebVPN();
+    }
   }
 
   String maybeWrap(String url) {
-    if (!webvpnOn) return url;
-    if (WebVPN.isIntranet(url)) return WebVPN.wrap(url);
-    // 校外门户 HTML 会被学校重定向进网关，门户域的请求统一改走网关
-    final lowered = url.toLowerCase();
-    if (lowered.contains('personal.neu.edu.cn') ||
-        lowered.contains('portal.neu.edu.cn')) {
-      return WebVPN.wrap(url);
-    }
-    return url;
+    final direct = WebVPN.unwrap(url);
+    return webvpnOn && WebVPN.supports(direct) ? WebVPN.wrap(direct) : direct;
   }
 
   /// WebView 会话回收后：若已持有网关票据则直接进入网关模式。
   void adoptGatewayTicket() {
-    if (_cookies.hasWebVPNTicket()) webvpnOn = true;
+    if (accessMode != AccessMode.direct &&
+        _campusProbeResult != true &&
+        _cookies.hasWebVPNTicket()) {
+      webvpnOn = true;
+    }
   }
 
   // ── 新设备二次认证（图形码 + 短信，login_second.js 流程）──────
@@ -802,6 +900,7 @@ class PortalClient {
 
   Future<Map<String, dynamic>> _api(String path,
       {Map<String, Object?>? query}) async {
+    await prepareAccess();
     // 校外（网关模式）时门户 JSON 接口也必须经网关
     final uri = Uri.parse(maybeWrap('$portalBase/$path'))
         .replace(queryParameters: query);
@@ -1015,6 +1114,7 @@ class PortalClient {
   }
 
   Future<String> _jwxtLikeGet(String ep) async {
+    await prepareAccess();
     final u = maybeWrap('$portalBase/$ep');
     final req = http.Request('GET', Uri.parse(u))
       ..headers.addAll(_headers(Uri.parse(u)));
@@ -1056,40 +1156,28 @@ class PortalClient {
   }
 
   /// 全部学期的真实成绩（成绩可能为数字或五级制文本，如「良」）。
-  Future<List<GradeSemester>> fetchJwxtGrades() async {
+  Future<List<GradeSemester>> fetchJwxtGrades() async =>
+      (await fetchGradeReport()).semesters;
+
+  Future<GradeReport> fetchGradeReport() async {
     await _jwxtSso();
-    final calRaw = await _jwxtGet(
-        'jwapp/sys/homeapp/api/home/student/schoolCalendars.do');
-    final cal = jsonDecode(calRaw);
-    if (cal['code'] != '0') throw PortalException('学期列表获取失败');
-    final terms = ((cal['datas'] ?? []) as List).whereType<Map>().toList();
+    final calendar = jsonDecode(await _jwxtGet(
+        'jwapp/sys/homeapp/api/home/student/schoolCalendars.do'));
+    validateAcademic(calendar);
     final out = <GradeSemester>[];
-    for (final t in terms) {
-      final code = '${t['itemCode'] ?? ''}'.trim();
-      final name = '${t['itemName'] ?? code}'.trim();
+    final failed = <String>[];
+    for (final term in academicRecords(calendar)) {
+      final code = '${term['itemCode'] ?? ''}'.trim();
       if (code.isEmpty) continue;
-      final raw = await _jwxtGet(
-          'jwapp/sys/homeapp/api/home/student/scores.do?termCode=$code');
-      final j = jsonDecode(raw);
-      if (j['code'] != '0') continue;
-      final list = ((j['datas'] ?? []) as List).whereType<Map>().toList();
-      final courses = list.map((c) {
-        final scoreRaw = '${c['score'] ?? ''}'.trim();
-        final scoreNum = double.tryParse(scoreRaw);
-        return GradeCourse(
-          name: '${c['courseName'] ?? ''}',
-          credit: double.tryParse('${c['credit'] ?? 0}') ?? 0,
-          category: '${c['courseType'] ?? ''}',
-          score: scoreNum,
-          scoreRaw: scoreNum == null ? scoreRaw : '',
-        );
-      }).where((c) => c.name.isNotEmpty).toList();
-      final selected = t['selected'] == true;
-      out.add(GradeSemester(name,
-          termCode: code, current: selected, courses: courses));
+      try {
+        final raw = await _jwxtGet(
+            'jwapp/sys/homeapp/api/home/student/scores.do?termCode=${Uri.encodeComponent(code)}');
+        out.add(parseGradeSemester(jsonDecode(raw), code,
+            '${term['itemName'] ?? code}', ['true', '1'].contains('${term['selected']}')));
+      } catch (_) { failed.add(code); }
     }
-    if (out.isEmpty) throw PortalException('未获取到成绩数据');
-    return out;
+    if (out.isEmpty) throw PortalException('本次未读取到成绩，请重试或在教务网页同步');
+    return GradeReport(out, failedTerms: failed);
   }
 
   static Future<String> _respText(http.StreamedResponse resp) async {

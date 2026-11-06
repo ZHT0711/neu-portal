@@ -12,6 +12,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'demo_data.dart';
 import 'models.dart';
+import 'learning.dart';
+import 'grade_report.dart';
+import 'card.dart';
 import 'web_cookies.dart';
 import 'web_session.dart';
 import 'platform_style.dart';
@@ -55,6 +58,137 @@ class AppState extends ChangeNotifier {
   List<ServiceSection> services = demoServices;
   List<GradeSemester> semesters = demoSemesters;
 
+  final Map<LearningPlatform, LearningReport> learningReports = {};
+  List<CGAssignment> cgAssignments = [];
+  List<String> cgWarnings = [];
+  CardBalance? cardBalance;
+  DateTime? cardUpdatedAt;
+  final Map<String, CardMonth> cardMonths = {};
+  List<String> cardWarnings = [];
+  String cardQueryMonth = learningDateText(DateTime.now()).substring(0, 7);
+  bool gradesLoading = false;
+  String? gradesError;
+  List<String> failedGradeTerms = [];
+  DateTime? gradesUpdatedAt;
+  int _gradeRequest = 0;
+  int _dataGeneration = 0;
+  Future<void>? _portalRefresh;
+  int get dataGeneration => _dataGeneration;
+
+  void _resetAccountData() {
+    _dataGeneration++;
+    _portalRefresh = null;
+    _gradeRequest++;
+    gradesLoading = false;
+    gradesError = null;
+    failedGradeTerms = [];
+    gradesUpdatedAt = null;
+    semesters = mode == SessionMode.demo ? demoSemesters : [];
+    learningReports.clear();
+    cgAssignments = [];
+    cgWarnings = [];
+    cardBalance = null;
+    cardUpdatedAt = null;
+    cardMonths.clear();
+    cardWarnings = [];
+    if (mode == SessionMode.live) {
+      scheduleTemplate = [];
+      news = [];
+      todos = [];
+      dataCards = [];
+    }
+  }
+
+  void acceptLearningReport(LearningPlatform platform, LearningReport report) {
+    learningReports[platform] = report.merging(learningReports[platform]);
+    notifyListeners();
+  }
+
+  void acceptCGReport(Map report) {
+    if (report['error'] != null) throw PortalException('${report['error']}');
+    final rows = (report['assignments'] as List? ?? [])
+        .whereType<Map>()
+        .map(CGAssignment.new)
+        .toList();
+    if (rows.isEmpty) throw PortalException('未读取到 CG 作业，请完成登录后重试');
+    cgAssignments = rows;
+    cgWarnings = (report['warnings'] as List? ?? []).map((w) => '$w').toList();
+    notifyListeners();
+  }
+
+  void acceptCardReport(Map report) {
+    if (report['error'] != null) throw PortalException('${report['error']}');
+    final balance = report['balance'];
+    if (balance is Map) {
+      cardBalance = CardBalance.fromJson(balance);
+      cardUpdatedAt = DateTime.now();
+    }
+    final month = '${report['month']}';
+    if (RegExp(r'^\d{4}-\d{2}$').hasMatch(month) && report['bills'] is List) {
+      cardMonths[month] = CardMonth(
+        month,
+        (report['bills'] as List).whereType<Map>().map(CardBill.new).toList(),
+        truncated: report['truncated'] == true,
+      );
+    }
+    cardWarnings = (report['warnings'] as List? ?? [])
+        .map((w) => '$w')
+        .toList();
+    if (balance is! Map && report['bills'] is! List) {
+      notifyListeners();
+      throw PortalException(
+        cardWarnings.isEmpty ? '校园卡数据尚未读取' : cardWarnings.join('\n'),
+      );
+    }
+    notifyListeners();
+  }
+
+  void acceptGradeReport(GradeReport report) {
+    _gradeRequest++; // Browser results take precedence over an older HTTP query.
+    gradesLoading = false;
+    final merged = report.merging(semesters);
+    semesters = merged.semesters;
+    failedGradeTerms = merged.failedTerms;
+    gradesError = null;
+    gradesUpdatedAt = DateTime.now();
+    notifyListeners();
+  }
+
+  Future<void> loadGrades({bool force = false}) async {
+    final c = _client;
+    if (mode != SessionMode.live ||
+        c == null ||
+        gradesLoading ||
+        (!force && gradesUpdatedAt != null)) {
+      return;
+    }
+    final generation = _dataGeneration;
+    final request = ++_gradeRequest;
+    gradesLoading = true;
+    gradesError = null;
+    notifyListeners();
+    bool current() =>
+        !_disposed &&
+        generation == _dataGeneration &&
+        request == _gradeRequest &&
+        c == _client &&
+        mode == SessionMode.live;
+    try {
+      final report = await c.fetchGradeReport();
+      if (!current()) return;
+      final merged = report.merging(semesters);
+      semesters = merged.semesters;
+      failedGradeTerms = merged.failedTerms;
+      gradesUpdatedAt = DateTime.now();
+    } catch (e) {
+      if (current()) gradesError = '$e';
+    } finally {
+      if (current()) {
+        gradesLoading = false;
+        notifyListeners();
+      }
+    }
+  }
   bool loading = false;
   String? lastError;
 
@@ -149,12 +283,20 @@ class AppState extends ChangeNotifier {
   bool useDynamicColor = false;
   PlatformStylePreference platformStyle = PlatformStylePreference.auto;
   LiquidTabBarMode liquidTabBarMode = LiquidTabBarMode.native;
+  AccessMode accessMode = AccessMode.auto;
+  bool switchingAccess = false;
+  bool _accessReady = false;
+
+  String get accessStatus => _accessReady
+      ? '当前线路为${_client?.webvpnOn == true ? ' WebVPN' : '直连'}'
+      : '校内直连，校外自动使用 WebVPN';
 
   static const _kMode = 'ui.themeMode';
   static const _kSeed = 'ui.seed';
   static const _kDyn = 'ui.dynamic';
   static const _kPlatform = 'ui.platform';
   static const _kGlassMode = 'ui.liquidTabBarMode';
+  static const _kAccessMode = 'network.accessMode';
   static const _kEvents = 'planner.events';
   static const _kSession = 'session.mode';
   static const _kAppsCache = 'cache.apps';
@@ -211,6 +353,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> _clearWebSession() {
     _sessionEpoch++;
+    _resetAccountData();
     return _sessionWrites = _sessionWrites
         .then((_) async {
           if (!kIsWeb) await _secure.delete(key: _kWebSession);
@@ -224,6 +367,12 @@ class AppState extends ChangeNotifier {
 
   Future<void> loadSettings() async {
     final p = await SharedPreferences.getInstance();
+    final savedAccess = p.getString(_kAccessMode);
+    accessMode = AccessMode.values.firstWhere(
+      (value) => value.name == savedAccess,
+      orElse: () => AccessMode.auto,
+    );
+    _client?.accessMode = accessMode;
     themeMode = ThemeMode.values[p.getInt(_kMode) ?? 0];
     useDynamicColor = p.getBool(_kDyn) ?? false;
     final s = p.getInt(_kSeed);
@@ -273,6 +422,47 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setAccessMode(AccessMode value) async {
+    if (switchingAccess || accessMode == value) return;
+    switchingAccess = true;
+    accessMode = value;
+    notifyListeners();
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setString(_kAccessMode, value.name);
+      final c = _client ??= PortalClient();
+      c.accessMode = value;
+      await prepareBrowserAccess(force: true);
+      if (mode == SessionMode.live) await refresh();
+    } finally {
+      switchingAccess = false;
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  /// 在新页面与前台恢复时重选线路，并把新网关票据同步到原生浏览器。
+  Future<void> prepareBrowserAccess({bool force = false}) async {
+    final c = _client ??= PortalClient()..accessMode = accessMode;
+    final native = _usesWebSession ? await readNativeSessionCookies() : null;
+    if (c != _client || _disposed) return;
+    if (native != null) c.restoreSessionCookies(native);
+    final previous = {
+      for (final cookie in native ?? c.sessionCookies())
+        sessionCookieKey(cookie): cookie['value'],
+    };
+    if (force) c.invalidateAccessRoute();
+    await c.prepareAccess();
+    if (c != _client || _disposed) return;
+    final updated = c.sessionCookies().where((cookie) =>
+        cookie['metadataKnown'] == true &&
+        previous[sessionCookieKey(cookie)] != cookie['value']).toList();
+    if (updated.isNotEmpty) await restoreNativeSessionCookies(updated);
+    _accessReady = true;
+    if (!_disposed) notifyListeners();
+  }
+
+  void invalidateAccessRoute() => _client?.invalidateAccessRoute();
+
   Future<void> setPlatformStyle(PlatformStylePreference style) async {
     platformStyle = style;
     setPlatformPreference(style);
@@ -310,6 +500,7 @@ class AppState extends ChangeNotifier {
 
   // ── 登录 / 退出 / 免登录 ─────────────────────────────
   Future<void> login(String username, String password) async {
+    _resetAccountData();
     _usesWebSession = false;
     loading = true;
     lastError = null;
@@ -317,12 +508,13 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     try {
       _client?.dispose();
-      final c = PortalClient();
+      final c = PortalClient()..accessMode = accessMode;
       _client = c;
       final u = await c.login(username, password);
       await _clearWebSession();
       user = u;
       mode = SessionMode.live;
+      _resetAccountData();
       _persistedLive = true;
       final p = await SharedPreferences.getInstance();
       await p.setInt(_kSession, 1);
@@ -370,6 +562,7 @@ class AppState extends ChangeNotifier {
       _usesWebSession = false;
       user = u;
       mode = SessionMode.live;
+      _resetAccountData();
       _persistedLive = true;
       needsSecondAuth = false;
       lastError = null;
@@ -395,13 +588,11 @@ class AppState extends ChangeNotifier {
   }) async {
     var c = _client;
     if (c == null) {
-      c = PortalClient();
+      c = PortalClient()..accessMode = accessMode;
       _client = c;
     }
     c.setUserAgent(userAgent);
     c.absorbWebCookies(cookies);
-    // WebView 里已拿到网关票据 → 直接进入网关模式（校外门户必须经网关读取）
-    if (c.hasWebVPNTicket) c.webvpnOn = true;
     loading = true;
     notifyListeners();
     try {
@@ -410,9 +601,7 @@ class AppState extends ChangeNotifier {
         lastError = '未能取得登录会话，请在页面中完成登录';
         return false;
       }
-      if (!c.webvpnOn && !await c.ensureWebVPN()) {
-        // 换票失败不阻断：校内直连场景仍可用
-      }
+      await prepareBrowserAccess(force: true);
       // 用户信息：优先用 WebView 内捕获的 userInfoDSL（真实页面，不被 WAF 拦），
       // 其次经网关拉门户 HTML，都失败则用学号占位（nidong 式：登录不阻断）
       PortalUser? u;
@@ -436,6 +625,7 @@ class AppState extends ChangeNotifier {
         await p.setString(_kWebUa, userAgent.trim());
       }
       final sid = p.getString('cas.user') ?? '';
+      _resetAccountData();
       user = u ??
           PortalUser(
             uid: '',
@@ -448,6 +638,7 @@ class AppState extends ChangeNotifier {
           );
       _usesWebSession = true;
       mode = SessionMode.live;
+      _resetAccountData();
       _persistedLive = true;
       needsSecondAuth = false;
       lastError = null;
@@ -528,7 +719,7 @@ class AppState extends ChangeNotifier {
 
   /// 网页登录后的重启恢复：读取 WebView 持久化会话（无需密码）。
   Future<bool> restoreWebSession() async {
-    final c = _client ??= PortalClient();
+    final c = _client ??= PortalClient()..accessMode = accessMode;
     try {
       final p = await SharedPreferences.getInstance();
       final raw = kIsWeb ? null : await _secure.read(key: _kWebSession);
@@ -565,6 +756,7 @@ class AppState extends ChangeNotifier {
         await restoreNativeSessionCookies(c.sessionCookies());
         if (fresh != null) user = user.merge(fresh);
         mode = SessionMode.live;
+        _resetAccountData();
         _usesWebSession = true;
         _persistedLive = true;
         lastError = null;
@@ -585,7 +777,7 @@ class AppState extends ChangeNotifier {
       c.absorbWebCookies(cookies
           .map((ck) => (name: ck.name, value: ck.value, domain: ck.domain, path: ck.path))
           .toList());
-      if (c.hasWebVPNTicket) c.webvpnOn = true;
+      c.adoptGatewayTicket();
       if (!c.isLoggedIn && !c.hasCasSession && !c.hasWebVPNTicket) return false;
       PortalUser? u;
       try {
@@ -611,6 +803,7 @@ class AppState extends ChangeNotifier {
             avatarUrl: '',
           );
       mode = SessionMode.live;
+      _resetAccountData();
       _usesWebSession = true;
       _persistedLive = true;
       lastError = null;
@@ -630,6 +823,7 @@ class AppState extends ChangeNotifier {
     sessionSaveError = null;
     _client?.dispose();
     _client = null;
+    _accessReady = false;
     needsSecondAuth = false;
     secondAuthCaptcha = null;
     try {
@@ -640,6 +834,7 @@ class AppState extends ChangeNotifier {
     needsSecondAuth = false;
     secondAuthCaptcha = null;
     user = PortalUser.demo;
+    semesters = demoSemesters;
     scheduleTemplate = demoSchedule;
     final cachedApps = await _loadAppsCache();
     apps = mergePortalApps([demoApps, cachedApps]);
@@ -654,13 +849,16 @@ class AppState extends ChangeNotifier {
   }
 
   void enterDemo() {
+    _resetAccountData();
     _usesWebSession = false;
     _client?.dispose();
     _client = null;
+    _accessReady = false;
     mode = SessionMode.demo;
     needsSecondAuth = false;
     secondAuthCaptcha = null;
     user = PortalUser.demo;
+    semesters = demoSemesters;
     scheduleTemplate = demoSchedule;
     apps = demoApps;
     unawaited(_loadAppsCache().then((cached) {
@@ -676,52 +874,82 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _refreshLive({bool refreshUser = false}) async {
+  Future<void> _refreshLive({bool refreshUser = false}) {
+    if (_portalRefresh != null) return _portalRefresh!;
+    final generation = _dataGeneration;
+    return _portalRefresh = _performRefreshLive(refreshUser: refreshUser)
+        .whenComplete(() {
+          if (generation == _dataGeneration) _portalRefresh = null;
+        });
+  }
+
+  Future<void> _performRefreshLive({bool refreshUser = false}) async {
     final c = _client;
     if (c == null) return;
-    // 登录流程已经读取过资料；手动刷新时再重试，避免失败后连续重复换票。
-    // 拉取 HTML 可能需要换网关票据，先补资料，再并行读取业务接口。
+    final generation = _dataGeneration;
+    bool current() =>
+        !_disposed &&
+        c == _client &&
+        generation == _dataGeneration &&
+        mode == SessionMode.live;
+    await prepareBrowserAccess();
+    if (!current()) return;
     if (refreshUser) {
       try {
-        user = user.merge(await c.fetchUserInfo());
+        final profile = await c.fetchUserInfo();
+        if (!current()) return;
+        final merged = user.merge(profile);
+        if ((user.uid.isNotEmpty &&
+                merged.uid.isNotEmpty &&
+                user.uid != merged.uid) ||
+            (user.sid.isNotEmpty &&
+                merged.sid.isNotEmpty &&
+                user.sid != merged.sid)) {
+          _resetAccountData();
+          user = merged;
+          await _refreshLive();
+          return;
+        }
+        user = merged;
       } catch (_) {}
     }
     var ok = 0, total = 0;
-    Future<void> guarded(Future<void> Function() f) async {
+    Future<void> guarded<T>(
+      Future<T> Function() fetch,
+      void Function(T) apply,
+    ) async {
       total++;
       try {
-        await f();
+        final value = await fetch();
+        if (!current()) return;
+        apply(value);
         ok++;
       } catch (_) {}
-      notifyListeners();
+      if (current()) notifyListeners();
     }
 
     await Future.wait([
-      guarded(() async => scheduleTemplate =
-          _templateFromOccurrences(await c.fetchWeek(DateTime.now()))),
-      guarded(() async {
-        final fetched = await c.fetchApps();
-        apps = mergePortalApps([demoApps, await _loadAppsCache(), apps, fetched]);
-        if (fetched.isNotEmpty) await _saveAppsCache(apps);
+      guarded(
+        () => c.fetchWeek(DateTime.now()),
+        (value) => scheduleTemplate = _templateFromOccurrences(value),
+      ),
+      guarded(c.fetchApps, (value) {
+        apps = mergePortalApps([demoApps, apps, value]);
+        if (value.isNotEmpty) unawaited(_saveAppsCache(apps));
       }),
-      guarded(() async => news = await c.fetchNews()),
-      guarded(() async => todos = await c.fetchTodos()),
-      guarded(() async => dataCards = await c.fetchDataCards()),
-      guarded(() async => semesters = await c.fetchJwxtGrades()),
-      guarded(() async => hotSearches = await c.fetchHotSearch()),
+      guarded(c.fetchNews, (value) => news = value),
+      guarded(c.fetchTodos, (value) => todos = value),
+      guarded(c.fetchDataCards, (value) => dataCards = value),
+      guarded(c.fetchHotSearch, (value) => hotSearches = value),
     ]);
+    if (!current()) return;
     liveAvailable = total > 0 && ok >= 2;
-    if (apps.isEmpty) {
-      final cachedApps = await _loadAppsCache();
-      apps = mergePortalApps([demoApps, cachedApps]);
-    }
-    lastError = liveAvailable ? null : '实时数据不可用（可能需要校园网或 VPN），已展示离线数据';
+    lastError = liveAvailable ? null : '实时数据暂不可用，请检查线路后重试';
     notifyListeners();
   }
-
   /// 把某一周的真实事件归并成周模板。
   List<CourseSlot> _templateFromOccurrences(List<CourseOccurrence> occs) {
-    if (occs.isEmpty) return demoSchedule;
+    if (occs.isEmpty) return [];
     final merged = <String, CourseSlot>{};
     for (final o in occs) {
       merged.putIfAbsent(
@@ -734,11 +962,12 @@ class AppState extends ChangeNotifier {
         final c = a.weekday.compareTo(b.weekday);
         return c != 0 ? c : a.startMinutes.compareTo(b.startMinutes);
       });
-    return list.isEmpty ? demoSchedule : list;
+    return list;
   }
 
   Future<void> refresh() async {
     if (mode == SessionMode.live && _client != null) {
+      invalidateAccessRoute();
       await _refreshLive(refreshUser: true);
       await persistWebSession();
     } else {
@@ -750,10 +979,23 @@ class AppState extends ChangeNotifier {
   Future<List<CourseOccurrence>> fetchWeek(DateTime anyDayInWeek) async {
     final c = _client;
     if (c == null) throw PortalException('未登录');
-    return c.fetchWeek(anyDayInWeek);
+    final generation = _dataGeneration;
+    final result = await c.fetchWeek(anyDayInWeek);
+    if (_disposed || c != _client || generation != _dataGeneration || mode != SessionMode.live) {
+      throw PortalException('账号已切换，请重新读取课表');
+    }
+    return result;
   }
 
   /// e码通快捷入口：优先匹配门户应用列表，退回一卡通 SSO 地址。
+  String get cgEntryUrl {
+    for (final app in apps) {
+      final url = app.entryUrl();
+      if (LearningPlatform.cg.accepts(url)) return url;
+    }
+    return LearningPlatform.cg.entryUrl;
+  }
+
   String get ecodeEntryUrl {
     for (final a in apps) {
       if (a.name.contains('e码通') || a.name.contains('校园码')) {
@@ -783,7 +1025,12 @@ class AppState extends ChangeNotifier {
 
   void updateWebProfile(PortalUser captured) {
     if (mode != SessionMode.live || !captured.hasProfile) return;
-    user = user.merge(captured);
+    final merged = user.merge(captured);
+    if ((user.uid.isNotEmpty && merged.uid.isNotEmpty && user.uid != merged.uid) ||
+        (user.sid.isNotEmpty && merged.sid.isNotEmpty && user.sid != merged.sid)) {
+      _resetAccountData();
+    }
+    user = merged;
     unawaited(persistWebSession());
     notifyListeners();
   }

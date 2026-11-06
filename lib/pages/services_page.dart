@@ -9,6 +9,8 @@ import '../core/tab_scroller.dart';
 import '../core/models.dart';
 import '../core/theme.dart';
 import '../widgets/common.dart';
+import 'learning_page.dart';
+import 'card_page.dart';
 
 /// 服务大厅：智慧搜索（热词 + 本地过滤 + 智搜平台）+ 全部应用 + 专题服务。
 class ServicesPage extends StatefulWidget {
@@ -96,6 +98,19 @@ class _ServicesPageState extends State<ServicesPage> {
               largeTitle: const Text('服务'),
               transitionBetweenRoutes: false,
             ),
+
+          if (q.isEmpty)
+            SliverPadding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              sliver: SliverToBoxAdapter(child: Column(children: [
+                Card(child: ListTile(leading: const Icon(Icons.assignment_outlined),
+                  title: const Text('学习任务'), subtitle: const Text('CG · 慕课与 SPOC · 学习通任务点'),
+                  trailing: const Icon(Icons.chevron_right), onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const LearningPage())))),
+                Card(child: ListTile(leading: const Icon(Icons.account_balance_wallet_outlined),
+                  title: const Text('校园卡'), subtitle: const Text('主钱包余额 · 月流水查询'),
+                  trailing: const Icon(Icons.chevron_right), onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const CardPage())))),
+              ]))),
 
           // ── 搜索框 ──
           SliverPadding(

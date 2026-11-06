@@ -21,6 +21,10 @@ import '../core/theme.dart';
 import '../core/web_policy.dart';
 import '../core/web_cookies.dart';
 import '../core/webvpn.dart';
+import '../core/browser_bridge.dart';
+import '../core/learning.dart';
+import '../core/learning_reader.dart';
+import '../core/grade_report.dart';
 import 'login_page.dart';
 import 'shell.dart';
 
@@ -42,6 +46,41 @@ class WebViewPage extends StatefulWidget {
 
 class _WebViewPageState extends State<WebViewPage> {
   late final WebViewController _controller;
+  late final BrowserBridge _bridge;
+  AppState? _state;
+  int _accountGeneration = 0;
+  int _documentGeneration = 0;
+  bool _syncing = false;
+  String _syncProgress = '';
+  PortalClient? _learningClient;
+
+  String? get _dataTarget {
+    if (widget.loginMode) return null;
+    final direct = WebVPN.unwrap(_currentUri.toString());
+    for (final platform in LearningPlatform.values) {
+      if (platform.accepts(direct)) return platform.name;
+    }
+    final host = Uri.tryParse(direct)?.host;
+    if (host == 'jwxt.neu.edu.cn') return 'grades';
+    if (host == 'ecard.neu.edu.cn') return 'card';
+    return null;
+  }
+
+  void _cancelSync() {
+    _documentGeneration++;
+    _bridge.cancel();
+    _learningClient?.dispose();
+    _learningClient = null;
+    _syncing = false;
+  }
+
+  void _accountChanged() {
+    if (_state?.dataGeneration == _accountGeneration) return;
+    _accountGeneration = _state!.dataGeneration;
+    _cancelSync();
+    unawaited(_controller.runJavaScript('window.stop();'));
+    if (mounted) setState(() {});
+  }
   late Uri _currentUri;
   final _progressNotifier = ValueNotifier<double>(0.0);
   bool _viewReady = false;
@@ -98,12 +137,20 @@ class _WebViewPageState extends State<WebViewPage> {
           )
         : const PlatformWebViewControllerCreationParams();
     _controller = WebViewController.fromPlatformCreationParams(params);
+    _bridge = BrowserBridge(_controller);
     _configureAndLoad();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final state = AppScope.of(context);
+    if (_state != state) {
+      _state?.removeListener(_accountChanged);
+      _state = state;
+      _accountGeneration = state.dataGeneration;
+      state.addListener(_accountChanged);
+    }
     final route = ModalRoute.of(context);
     final anim = route?.animation;
     if (anim != null) {
@@ -130,6 +177,8 @@ class _WebViewPageState extends State<WebViewPage> {
 
   @override
   void dispose() {
+    _state?.removeListener(_accountChanged);
+    _cancelSync();
     _routeAnimation?.removeStatusListener(_onRouteAnimationStatus);
     _progressNotifier.dispose();
     super.dispose();
@@ -138,6 +187,7 @@ class _WebViewPageState extends State<WebViewPage> {
   Future<void> _configureAndLoad() async {
     try {
       await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+      await _bridge.install();
       final dark = mounted && Theme.of(context).brightness == Brightness.dark;
       await _controller.setBackgroundColor(
         dark ? const Color(0xFF1C1C1E) : const Color(0xFFFFFFFF),
@@ -155,6 +205,7 @@ class _WebViewPageState extends State<WebViewPage> {
           onNavigationRequest: _onNavigation,
           onUrlChange: (change) => _rememberUrl(change.url),
           onPageStarted: (url) {
+            _cancelSync();
             _rememberUrl(url);
             _diag('跳转 $url');
             _progressNotifier.value = 0.05;
@@ -205,6 +256,13 @@ class _WebViewPageState extends State<WebViewPage> {
 
   Future<NavigationDecision> _onNavigation(NavigationRequest request) async {
     final uri = Uri.tryParse(request.url);
+    if (request.isMainFrame && mounted && PortalWebPolicy.isWebUrl(uri)) {
+      final routed = AppScope.of(context).browserURL(request.url);
+      if (routed != request.url) {
+        await _load(Uri.parse(routed), resetHttpRetry: false);
+        return NavigationDecision.prevent;
+      }
+    }
     if (PortalWebPolicy.isWebUrl(uri) || request.url == 'about:blank') {
       return NavigationDecision.navigate;
     }
@@ -479,6 +537,18 @@ class _WebViewPageState extends State<WebViewPage> {
   Future<void> _injectCookiesThenLoad() async {
     try {
       final state = AppScope.of(context);
+      if (!widget.loginMode || _currentUri.toString() == kNeuCasLoginUrl) {
+        await state.prepareBrowserAccess(force: true);
+        if (!mounted) return;
+        if (widget.loginMode) {
+          final portal = state.browserURL(kPortalBase);
+          _currentUri = Uri.parse(kNeuCasLoginUrl).replace(
+            queryParameters: {
+              'service': WebVPN.isWrapped(portal) ? WebVPN.casService : portal,
+            },
+          );
+        }
+      }
       // 网页登录与业务页共用原生 Cookie 存储，不把已有 HttpOnly/路径 Cookie
       // 降为普通的根路径 Cookie 再覆盖回去。
       if (state.mode == SessionMode.live && !state.usesWebSession) {
@@ -566,6 +636,156 @@ class _WebViewPageState extends State<WebViewPage> {
     }
   }
 
+  Future<List<Map<String, dynamic>>> _platformCookies(
+    LearningPlatform platform,
+  ) async {
+    final urls = platform == LearningPlatform.mooc
+        ? ['https://www.icourse163.org/', 'https://icourse163.org/']
+        : [
+            'https://i.chaoxing.com/',
+            'https://chaoxing.com/',
+            'https://mooc1-api.chaoxing.com/',
+            'https://mooc1.chaoxing.com/',
+            'https://passport2.chaoxing.com/',
+          ];
+    final records = <String, Map<String, dynamic>>{};
+    for (final url in urls) {
+      for (final cookie in await captureWebViewCookies(Uri.parse(url))) {
+        if (cookie.value.isEmpty) continue;
+        final row = <String, dynamic>{
+          'name': cookie.name,
+          'value': cookie.value,
+          'domain': cookie.domain.replaceFirst(RegExp(r'^\.'), ''),
+          'path': cookie.path,
+          'secure': true,
+          'httpOnly': true,
+          'hostOnly': !cookie.domain.startsWith('.'),
+          'metadataKnown': false,
+        };
+        records['${row['domain']}|${row['path']}|${row['name']}'] = row;
+      }
+    }
+    return records.values.toList();
+  }
+
+  Future<void> _syncData() async {
+    final target = _dataTarget;
+    final state = _state;
+    if (_syncing || target == null || state == null) return;
+    final document = _documentGeneration;
+    final generation = state.dataGeneration;
+    bool current() =>
+        mounted &&
+        document == _documentGeneration &&
+        generation == state.dataGeneration &&
+        target == _dataTarget;
+    setState(() {
+      _syncing = true;
+      _syncProgress = '正在读取';
+    });
+    PortalClient? client;
+    try {
+      if (target == 'mooc' || target == 'chaoxing') {
+        final platform = LearningPlatform.values.byName(target);
+        final cookies = await _platformCookies(platform);
+        if (!current()) return;
+        final accountKey = learningAccountKey(platform, cookies);
+        client = PortalClient()..restoreSessionCookies(cookies);
+        _learningClient = client;
+        client.setUserAgent(
+          await _controller.getUserAgent() ?? state.webUserAgent ?? '',
+        );
+        final reader = LearningReader(
+          client: client,
+          parse: (script, arguments) async {
+            if (!current()) throw LearningSyncCancelled();
+            final parsed = await _bridge.run(script, arguments);
+            if (!current()) throw LearningSyncCancelled();
+            return parsed;
+          },
+          isCurrent: current,
+          onProgress: (text) {
+            if (current()) setState(() => _syncProgress = text);
+          },
+        );
+        final report = await reader.read(
+          platform,
+          previous: state.learningReports[platform],
+        );
+        if (!current()) return;
+        final finalKey = learningAccountKey(
+          platform,
+          await _platformCookies(platform),
+        );
+        if (!current()) return;
+        if (accountKey != finalKey) throw PortalException('平台账号已变化，请重新同步');
+        final cookieManager = WebViewCookieManager();
+        for (final c in client.browserCookies()) {
+          if (!current()) return;
+          await cookieManager.setCookie(
+            WebViewCookie(
+              name: c.name,
+              value: c.value,
+              domain: c.domain,
+              path: c.path,
+            ),
+          );
+        }
+        if (current()) state.acceptLearningReport(platform, report);
+      } else {
+        final script = await rootBundle.loadString(
+          'assets/bridges/${target == 'grades'
+              ? 'grades'
+              : target == 'cg'
+              ? 'cg'
+              : 'card'}.js',
+        );
+        final arguments = <String, Object?>{};
+        if (target == 'cg') {
+          final direct = Uri.parse(WebVPN.unwrap(_currentUri.toString()));
+          final entry = direct.replace(
+            path: '/assignment/index.jsp',
+            query: '',
+            fragment: '',
+          );
+          arguments['rootURL'] = state.browserURL(entry.toString());
+          arguments['originalRootURL'] = entry.toString();
+        }
+        if (target == 'card') arguments['month'] = state.cardQueryMonth;
+        if (!current()) return;
+        final report = await _bridge.run(script, arguments);
+        if (!current()) return;
+        switch (target) {
+          case 'cg':
+            state.acceptCGReport(report);
+          case 'grades':
+            state.acceptGradeReport(GradeReport.fromBrowser(report));
+          case 'card':
+            state.acceptCardReport(report);
+        }
+      }
+      if (mounted && current()) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('同步完成，可返回查看数据与读取提示')));
+      }
+    } catch (e) {
+      if (mounted && current()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e'), duration: const Duration(seconds: 6)),
+        );
+      }
+    } finally {
+      client?.dispose();
+      if (identical(_learningClient, client)) _learningClient = null;
+      if (current()) {
+        setState(() {
+          _syncing = false;
+          _syncProgress = '';
+        });
+      }
+    }
+  }
+
   Future<void> _menuAction(String action) async {
     switch (action) {
       case 'refresh':
@@ -621,6 +841,10 @@ class _WebViewPageState extends State<WebViewPage> {
                   onPressed: () => Navigator.of(context).pop(),
                 ),
           actions: [
+            if (_dataTarget != null)
+              IconButton(tooltip: '同步到应用', onPressed: _syncing ? null : _syncData,
+                icon: _syncing ? const SizedBox(width: 20, height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.sync)),
             if (widget.loginMode)
               IconButton(
                 tooltip: '诊断日志',
@@ -692,6 +916,16 @@ class _WebViewPageState extends State<WebViewPage> {
         body: Column(
           children: [
             _buildAddressBar(context),
+            if (_dataTarget != null)
+              Material(color: scheme.secondaryContainer, child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                child: Row(children: [
+                  Expanded(child: Text(_syncing ? _syncProgress : '完成网页登录后，同步${_dataTarget == 'card' ? '余额与所选月流水' : _dataTarget == 'grades' ? '全部学期成绩' : '全部课程作业'}',
+                    maxLines: 2, overflow: TextOverflow.ellipsis)),
+                  if (_syncing) TextButton(onPressed: () => setState(_cancelSync), child: const Text('取消'))
+                  else TextButton(onPressed: _syncData, child: const Text('同步')),
+                ]),
+              )),
             if (_needLogin) _buildSessionExpiredBanner(context),
             _buildProgressBar(context),
             Expanded(

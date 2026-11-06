@@ -212,6 +212,8 @@ void main() {
 }
 
 class _Client extends PortalClient {
+  @override
+  Future<bool> isCampusNet() async => false;
   Object? failure;
   @override
   Future<PortalUser?> validateSavedSession() async {

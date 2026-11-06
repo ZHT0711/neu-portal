@@ -32,6 +32,7 @@ class _SchedulePageState extends State<SchedulePage> {
   final Map<String, List<CourseOccurrence>> _remoteCache = {};
   bool _fetching = false;
   bool _fetchFailed = false;
+  int? _accountGeneration;
 
   DateTime get _weekStart => _anchorWeekStart.add(Duration(days: 7 * _offset));
   int get _weekNumber => _anchorWeekNumber + _offset;
@@ -53,6 +54,20 @@ class _SchedulePageState extends State<SchedulePage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final generation = AppScope.of(context).dataGeneration;
+    if (_accountGeneration == generation) return;
+    _accountGeneration = generation;
+    _remoteCache.clear();
+    _fetching = false;
+    _fetchFailed = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _maybeFetch();
+    });
+  }
+
+  @override
   void dispose() {
     TabScroller.detach(1, _scroll);
     _scroll.dispose();
@@ -63,16 +78,19 @@ class _SchedulePageState extends State<SchedulePage> {
     final s = AppScope.of(context);
     if (s.mode != SessionMode.live) return;
     final key = Semester.iso(_weekStart);
+    final generation = s.dataGeneration;
+    bool current() => mounted && generation == s.dataGeneration;
     if (_remoteCache.containsKey(key) || _fetching) return;
     setState(() => _fetching = true);
     try {
       final occs = await s.fetchWeek(_weekStart);
-      if (occs.isNotEmpty) _remoteCache[key] = occs;
+      if (!current()) return;
+      _remoteCache[key] = occs;
       _fetchFailed = false;
     } catch (_) {
-      _fetchFailed = true;
+      if (current()) _fetchFailed = true;
     } finally {
-      if (mounted) setState(() => _fetching = false);
+      if (current()) setState(() => _fetching = false);
     }
   }
 

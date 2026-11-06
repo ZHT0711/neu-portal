@@ -30,6 +30,7 @@ jobs:
       - run: flutter pub get
       - run: flutter test
       - run: node tools/test_portal_document.mjs
+      - run: node tools/test_learning_bridges.mjs
       - run: flutter build apk --release
 
       - uses: actions/upload-artifact@v7
@@ -56,6 +57,7 @@ jobs:
       - run: flutter pub get
       - run: flutter test
       - run: node tools/test_portal_document.mjs
+      - run: node tools/test_learning_bridges.mjs
 
       - name: Test IPA validation
         run: python3 -m unittest discover -s tools -p 'test_*.py'
