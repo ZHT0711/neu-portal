@@ -110,9 +110,10 @@ class _GradesPageState extends State<GradesPage> {
                 index: si + 1,
                 child: Row(
                   children: [
-                    Text(sems[si].name,
-                        style: Theme.of(context).textTheme.titleMedium),
-                    const Spacer(),
+                    Expanded(child: Text(sems[si].name,
+                        maxLines: 2, overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium)),
+                    const SizedBox(width: 12),
                     Text(
                       '${sems[si].courses.length} 门课',
                       style: Theme.of(context).textTheme.labelMedium?.copyWith(

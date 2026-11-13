@@ -365,7 +365,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         const ListTile(
                           leading: Icon(Icons.blur_on),
                           title: Text('液态玻璃底栏引擎'),
-                          subtitle: Text('两全其美：原生 UIKit 质感 / GPU 硬件加速流体胶囊（零发热）'),
+                          subtitle: Text('系统原生材质 / 轻盈悬浮胶囊 / 全宽磨砂底栏'),
                         ),
                         Padding(
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),

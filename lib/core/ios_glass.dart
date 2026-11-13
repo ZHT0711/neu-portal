@@ -1,7 +1,5 @@
-/// Native-fidelity Liquid Glass for iOS & Android.
-/// Renders 100% through Flutter's GPU-accelerated Metal/Skia pipeline
-/// with dual-layer specular refraction, physical edge highlights, and RepaintBoundary.
-/// Zero UiKitView platform views -> zero thermal heating and zero dropped frames.
+/// Adaptive iOS navigation materials and lightweight content surfaces.
+/// Native mode uses UIKit; custom bars use one clipped backdrop blur.
 library;
 
 import 'dart:ui';
@@ -12,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:real_liquid_glass/real_liquid_glass.dart';
 import 'app_state.dart';
 import 'platform_style.dart';
+import 'tab_scroller.dart';
 
 class IosGlassEnvironment extends StatefulWidget {
   const IosGlassEnvironment({super.key, required this.child});
@@ -37,17 +36,20 @@ class _IosGlassEnvironmentState extends State<IosGlassEnvironment> {
 
   @override
   Widget build(BuildContext context) => FutureBuilder<LiquidGlassCapabilities>(
-        future: _capabilities,
-        builder: (context, snapshot) => IosGlassScope(
-          capabilities: snapshot.data ?? LiquidGlassCapabilities.none,
-          child: widget.child,
-        ),
-      );
+    future: _capabilities,
+    builder: (context, snapshot) => IosGlassScope(
+      capabilities: snapshot.data ?? LiquidGlassCapabilities.none,
+      child: widget.child,
+    ),
+  );
 }
 
 class IosGlassScope extends InheritedWidget {
-  const IosGlassScope(
-      {super.key, required this.capabilities, required super.child});
+  const IosGlassScope({
+    super.key,
+    required this.capabilities,
+    required super.child,
+  });
   final LiquidGlassCapabilities capabilities;
   static LiquidGlassCapabilities of(BuildContext context) =>
       context
@@ -59,14 +61,8 @@ class IosGlassScope extends InheritedWidget {
       capabilities != oldWidget.capabilities;
 }
 
-/// Authentic Apple Liquid Glass Surface.
-///
-/// Features:
-/// 1. Optical Backdrop Refraction (20px Gaussian blur).
-/// 2. Specular Incident Light Sheen (top-left directional gradient).
-/// 3. Luminous Specular Rim (physical micro-border catching ambient light).
-/// 4. Diffuse Liquid Drop Shadow.
-/// 5. Strict RepaintBoundary isolation (0% CPU background overhead).
+/// Content surfaces are opaque by default. Navigation explicitly opts into blur,
+/// keeping scrolling lists free of per-card backdrop filters.
 class IosGlassSurface extends StatelessWidget {
   const IosGlassSurface({
     super.key,
@@ -74,8 +70,8 @@ class IosGlassSurface extends StatelessWidget {
     this.radius = 24,
     this.borderRadius,
     this.border,
-    this.blurSigma = 20.0,
-    this.specular = true,
+    this.blurSigma = 0,
+    this.specular = false,
     this.tint,
   });
 
@@ -97,18 +93,20 @@ class IosGlassSurface extends StatelessWidget {
     final caps = IosGlassScope.of(context);
     final opaque =
         caps.reduceTransparency || MediaQuery.highContrastOf(context);
+    final solid = opaque || blurSigma <= 0;
 
     // Liquid Glass Substrate
-    final baseColor = tint ??
+    final baseColor =
+        tint ??
         (dark
-            ? const Color(0xFF1C1C1E).withValues(alpha: opaque ? 1.0 : 0.72)
-            : const Color(0xFFFFFFFF).withValues(alpha: opaque ? 1.0 : 0.68));
+            ? const Color(0xFF1C1C1E).withValues(alpha: solid ? 1.0 : 0.78)
+            : const Color(0xFFFFFFFF).withValues(alpha: solid ? 1.0 : 0.82));
 
     // Specular Highlight Rim
     final defaultBorder = Border.all(
       color: dark
           ? Colors.white.withValues(alpha: 0.16)
-          : Colors.white.withValues(alpha: 0.68),
+          : Colors.black.withValues(alpha: 0.06),
       width: 0.75,
     );
 
@@ -117,7 +115,7 @@ class IosGlassSurface extends StatelessWidget {
         color: baseColor,
         borderRadius: effectiveRadius,
         border: border ?? (hasRadius ? defaultBorder : null),
-        boxShadow: hasRadius && !opaque
+        boxShadow: hasRadius && !solid
             ? [
                 BoxShadow(
                   color: (dark ? Colors.black : const Color(0xFF3553A2))
@@ -142,7 +140,9 @@ class IosGlassSurface extends StatelessWidget {
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                             colors: [
-                              Colors.white.withValues(alpha: dark ? 0.08 : 0.28),
+                              Colors.white.withValues(
+                                alpha: dark ? 0.08 : 0.28,
+                              ),
                               Colors.white.withValues(alpha: 0.0),
                             ],
                             stops: const [0.0, 0.65],
@@ -173,10 +173,7 @@ class IosGlassSurface extends StatelessWidget {
   }
 }
 
-/// Native-feeling Apple Liquid Glass Tab Bar.
-///
-/// Full-width with translucent liquid glass material, subtle top specular edge,
-/// Cupertino iconography, and silky-smooth hardware-accelerated rendering.
+/// Native tab bar with two Flutter-rendered alternatives.
 class IosLiquidTabBar extends StatelessWidget {
   const IosLiquidTabBar({
     super.key,
@@ -199,7 +196,7 @@ class IosLiquidTabBar extends StatelessWidget {
     final caps = IosGlassScope.of(context);
     final hasNative = caps.osMajorVersion >= 13 && !kIsWeb;
 
-    // 1. 原生系统液态玻璃模式 (在支持原生的 iOS 13+ 真实设备生效)
+    // UIKit supplies its system material on supported iOS versions.
     if (mode == LiquidTabBarMode.native && hasNative) {
       return LiquidGlassBottomBar(
         items: items,
@@ -210,8 +207,8 @@ class IosLiquidTabBar extends StatelessWidget {
       );
     }
 
-    // 2. 极速 GPU 流体悬浮胶囊模式 (无 PlatformView，零发热零掉帧，带滑动光斑)
-    if (mode == LiquidTabBarMode.fluidCapsule && !kIsWeb) {
+    // One glass layer with a quiet, neutral selection highlight.
+    if (mode == LiquidTabBarMode.fluidCapsule) {
       return _FluidGlassCapsuleBar(
         items: items,
         currentIndex: index,
@@ -219,16 +216,12 @@ class IosLiquidTabBar extends StatelessWidget {
       );
     }
 
-    // 3. 经典全宽液态玻璃栏 (测试环境与通用后备)
-    return _ClassicGlassTabBar(
-      items: items,
-      index: index,
-      onTap: onTap,
-    );
+    // Full-width navigation and the default fallback.
+    return _ClassicGlassTabBar(items: items, index: index, onTap: onTap);
   }
 }
 
-/// 极速 GPU 流体悬浮胶囊底栏（纯 Metal/Skia 渲染，零发热/零掉帧，带滑动光斑）
+/// A single floating material; selected content stays at a stable size.
 class _FluidGlassCapsuleBar extends StatelessWidget {
   const _FluidGlassCapsuleBar({
     required this.items,
@@ -242,79 +235,26 @@ class _FluidGlassCapsuleBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final primary = Theme.of(context).colorScheme.primary;
-    final bottomPadding = MediaQuery.viewPaddingOf(context).bottom;
-
-    final margin = EdgeInsets.fromLTRB(
-      18,
-      0,
-      18,
-      bottomPadding > 0 ? bottomPadding : 10,
-    );
-
-    return RepaintBoundary(
-      child: Padding(
-        padding: margin,
-        child: IosGlassSurface(
-          radius: 34,
-          blurSigma: 25,
-          specular: true,
-          border: Border.all(
-            color: dark
-                ? Colors.white.withValues(alpha: 0.24)
-                : Colors.white.withValues(alpha: 0.75),
-            width: 0.8,
-          ),
-          child: SizedBox(
-            height: 64,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final barWidth = constraints.maxWidth;
-                final itemWidth = barWidth / items.length;
-                const pillPadding = 4.0;
-
-                return Stack(
+    final bottom = MediaQuery.viewPaddingOf(context).bottom;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(12, 8, 12, bottom > 0 ? bottom : 12),
+      child: Align(
+        heightFactor: 1,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: IosGlassSurface(
+            radius: 31,
+            blurSigma: 12,
+            child: SizedBox(
+              height: 62,
+              child: Padding(
+                padding: const EdgeInsets.all(5),
+                child: Stack(
                   children: [
-                    // 流体滑动光斑透镜 (Sliding Liquid Capsule Pill)
-                    AnimatedPositioned(
-                      duration: const Duration(milliseconds: 280),
-                      curve: Curves.easeOutBack,
-                      left: currentIndex * itemWidth + pillPadding,
-                      top: pillPadding,
-                      width: itemWidth - pillPadding * 2,
-                      bottom: pillPadding,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(28),
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: dark
-                                ? [
-                                    primary.withValues(alpha: 0.32),
-                                    primary.withValues(alpha: 0.18),
-                                  ]
-                                : [
-                                    primary.withValues(alpha: 0.20),
-                                    primary.withValues(alpha: 0.08),
-                                  ],
-                          ),
-                          border: Border.all(
-                            color:
-                                primary.withValues(alpha: dark ? 0.45 : 0.35),
-                            width: 0.8,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color:
-                                  primary.withValues(alpha: dark ? 0.25 : 0.15),
-                              blurRadius: 12,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                      ),
+                    _TabSelection(
+                      index: currentIndex,
+                      count: items.length,
+                      radius: 26,
                     ),
                     Row(
                       children: [
@@ -323,17 +263,55 @@ class _FluidGlassCapsuleBar extends StatelessWidget {
                             child: _FluidBarDestination(
                               item: items[i],
                               selected: i == currentIndex,
-                              onTap: () {
-                                hapticSelect();
-                                onTap(i);
-                              },
+                              onTap: () => onTap(i),
                             ),
                           ),
                       ],
                     ),
                   ],
-                );
-              },
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Shared selection treatment: no second blur, spring overshoot or icon zoom.
+class _TabSelection extends StatelessWidget {
+  const _TabSelection({
+    required this.index,
+    required this.count,
+    required this.radius,
+  });
+  final int index;
+  final int count;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: AnimatedAlign(
+          alignment: AlignmentDirectional(
+            count < 2 ? 0 : -1 + 2 * index / (count - 1),
+            0,
+          ),
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          child: FractionallySizedBox(
+            widthFactor: 1 / count,
+            heightFactor: 1,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: dark ? const Color(0x24FFFFFF) : const Color(0x0E000000),
+                borderRadius: BorderRadius.circular(radius),
+              ),
             ),
           ),
         ),
@@ -348,49 +326,40 @@ class _FluidBarDestination extends StatelessWidget {
     required this.selected,
     required this.onTap,
   });
-
   final LiquidGlassBarItem item;
   final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final primary = Theme.of(context).colorScheme.primary;
-    final color = selected
-        ? primary
-        : (dark ? const Color(0x99EBEBF5) : const Color(0x993C3C43));
-
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Semantics(
-        button: true,
-        selected: selected,
-        label: item.label,
+    final scheme = Theme.of(context).colorScheme;
+    final color = selected ? scheme.primary : scheme.onSurfaceVariant;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: item.label,
+      excludeSemantics: true,
+      child: CupertinoButton(
+        padding: EdgeInsets.zero,
+        onPressed: onTap,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            AnimatedScale(
-              scale: selected ? 1.12 : 1.0,
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOutBack,
-              child: Icon(
-                selected ? (item.selectedIcon ?? item.icon) : item.icon,
-                size: 23,
-                color: color,
-              ),
+            Icon(
+              selected ? (item.selectedIcon ?? item.icon) : item.icon,
+              size: 23,
+              color: color,
             ),
-            const SizedBox(height: 2),
+            const SizedBox(height: 3),
             Text(
               item.label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
                 color: color,
-                height: 1.1,
+                height: 1.15,
               ),
             ),
           ],
@@ -400,68 +369,61 @@ class _FluidBarDestination extends StatelessWidget {
   }
 }
 
-/// 经典全宽液态玻璃栏 (测试环境与通用后备)
+/// Full-width material with a soft selection track and a quiet separator.
 class _ClassicGlassTabBar extends StatelessWidget {
   const _ClassicGlassTabBar({
     required this.items,
     required this.index,
     required this.onTap,
   });
-
   final List<LiquidGlassBarItem> items;
   final int index;
   final ValueChanged<int> onTap;
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final bottomPadding = MediaQuery.viewPaddingOf(context).bottom;
-    final barHeight = bottomPadding > 0 ? 50.0 + bottomPadding : 58.0;
-
+    final scheme = Theme.of(context).colorScheme;
+    final bottom = MediaQuery.viewPaddingOf(context).bottom;
     return IosGlassSurface(
       radius: 0,
-      blurSigma: 24,
-      specular: false,
+      blurSigma: 12,
       border: Border(
         top: BorderSide(
-          color: dark
-              ? Colors.white.withValues(alpha: 0.12)
-              : Colors.white.withValues(alpha: 0.60),
-          width: 0.6,
+          color: scheme.outlineVariant.withValues(alpha: 0.35),
+          width: 0.5,
         ),
       ),
-      child: SizedBox(
-        height: barHeight,
-        child: Padding(
-          padding: EdgeInsets.only(
-            bottom: bottomPadding > 0 ? bottomPadding : 4.0,
-          ),
-          child: MediaQuery.removePadding(
-            context: context,
-            removeBottom: true,
-            child: CupertinoTabBar(
-              currentIndex: index,
-              onTap: (i) {
-                hapticSelect();
-                onTap(i);
-              },
-              height: 50.0,
-              iconSize: 25.0,
-              backgroundColor: Colors.transparent,
-              border: null,
-              activeColor: Theme.of(context).colorScheme.primary,
-              inactiveColor: dark
-                  ? const Color(0x99EBEBF5)
-                  : const Color(0x993C3C43),
-              items: [
-                for (final item in items)
-                  BottomNavigationBarItem(
-                    icon: Icon(item.icon),
-                    activeIcon: Icon(item.selectedIcon ?? item.icon),
-                    label: item.label,
-                  )
-              ],
-            ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(6, 4, 6, bottom > 0 ? bottom : 6),
+        child: SizedBox(
+          height: 56,
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: Stack(
+                  children: [
+                    _TabSelection(
+                      index: index,
+                      count: items.length,
+                      radius: 18,
+                    ),
+                  ],
+                ),
+              ),
+              Row(
+                children: [
+                  for (var i = 0; i < items.length; i++)
+                    Expanded(
+                      child: _FluidBarDestination(
+                        item: items[i],
+                        selected: i == index,
+                        onTap: () => onTap(i),
+                      ),
+                    ),
+                ],
+              ),
+            ],
           ),
         ),
       ),
@@ -471,12 +433,14 @@ class _ClassicGlassTabBar extends StatelessWidget {
 
 /// 底部滑动边距预留
 double portalBottomInset(BuildContext context) {
+  final shellInset = PortalNavigation.maybeOf(context)?.bottomInset;
+  if (shellInset != null) return shellInset;
   if (!isApple) return 34;
   final bottomPadding = MediaQuery.viewPaddingOf(context).bottom;
   try {
     final s = AppScope.of(context);
     if (s.liquidTabBarMode == LiquidTabBarMode.fluidCapsule) {
-      return 82 + bottomPadding;
+      return 94 + bottomPadding;
     }
   } catch (_) {}
   return 72 + bottomPadding;

@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:neu_portal/app.dart';
 import 'package:neu_portal/core/app_state.dart';
+import 'package:neu_portal/core/ios_glass.dart';
 import 'package:neu_portal/core/platform_style.dart';
 import 'package:neu_portal/pages/login_page.dart';
 import 'package:neu_portal/pages/services_page.dart';
@@ -89,7 +90,7 @@ void main() {
       await launch(tester, platform);
       expect(
           find.byType(
-              platform == TargetPlatform.iOS ? CupertinoTabBar : NavigationBar),
+              platform == TargetPlatform.iOS ? IosLiquidTabBar : NavigationBar),
           findsOneWidget);
       await capture(tester, '$name-home');
       await tester.ensureVisible(find.text('服务大厅'));

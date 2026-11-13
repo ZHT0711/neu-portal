@@ -39,8 +39,11 @@ class _SchedulePageState extends State<SchedulePage> {
   bool get _isCurrent => _offset == _currentWeekOffset(DateTime.now());
 
   static int _currentWeekOffset(DateTime now) {
-    final ws = DateTime(now.year, now.month, now.day)
-        .subtract(Duration(days: now.weekday % 7));
+    final ws = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).subtract(Duration(days: now.weekday % 7));
     return (ws.difference(_anchorWeekStart).inDays / 7).round();
   }
 
@@ -111,7 +114,8 @@ class _SchedulePageState extends State<SchedulePage> {
     final weekSwitcher = _WeekSwitcher(
       weekNumber: week,
       rangeText:
-          '${Fmt.monthDay(_weekStart)} – ${Fmt.monthDay(_weekStart.add(const Duration(days: 6)))}',
+          '${_weekStart.month}/${_weekStart.day} – '
+          '${_weekStart.add(const Duration(days: 6)).month}/${_weekStart.add(const Duration(days: 6)).day}',
       isCurrent: _isCurrent,
       onPrev: () {
         setState(() {
@@ -148,18 +152,19 @@ class _SchedulePageState extends State<SchedulePage> {
                   HapticFeedback.selectionClick();
                   setState(() => _fitToScreen = !_fitToScreen);
                 },
-                icon: Icon(_fitToScreen
-                    ? Icons.fit_screen
-                    : Icons.view_week_outlined),
+                icon: Icon(
+                  _fitToScreen ? Icons.fit_screen : Icons.view_week_outlined,
+                ),
               ),
             ),
             if (_fetching)
               const Padding(
                 padding: EdgeInsets.only(right: 16),
                 child: SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2)),
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
               )
             else if (_fetchFailed)
               Padding(
@@ -201,7 +206,7 @@ class _SchedulePageState extends State<SchedulePage> {
                             today: today,
                             isCurrentWeek: _isCurrent,
                             fitToScreen: true,
-                            rowHeight: 60.0,
+                            rowHeight: _compactRowHeight(context),
                             onEventTap: (occ) => _showDetail(context, occ),
                           ),
                         )
@@ -209,8 +214,9 @@ class _SchedulePageState extends State<SchedulePage> {
                           scrollDirection: Axis.horizontal,
                           child: SizedBox(
                             width: constraints.maxWidth.clamp(
-                                680 * MediaQuery.textScalerOf(context).scale(1),
-                                double.infinity),
+                              680 * MediaQuery.textScalerOf(context).scale(1),
+                              double.infinity,
+                            ),
                             child: _Grid(
                               days: days,
                               weekStart: _weekStart,
@@ -239,14 +245,15 @@ class _SchedulePageState extends State<SchedulePage> {
             backgroundColor: CupertinoColors.secondarySystemGroupedBackground
                 .resolveFrom(context)
                 .withValues(
-                    alpha: Theme.of(context).brightness == Brightness.dark
-                        ? 0.80
-                        : 0.72),
+                  alpha: Theme.of(context).brightness == Brightness.dark
+                      ? 0.80
+                      : 0.72,
+                ),
             border: Border(
               bottom: BorderSide(
                 color: IosColors.separator(
-                        Theme.of(context).brightness == Brightness.dark)
-                    .withValues(alpha: 0.35),
+                  Theme.of(context).brightness == Brightness.dark,
+                ).withValues(alpha: 0.35),
                 width: 0.5,
               ),
             ),
@@ -296,8 +303,11 @@ class _SchedulePageState extends State<SchedulePage> {
                     padding: const EdgeInsets.only(left: 6),
                     child: Tooltip(
                       message: '实时数据获取失败，已展示推算课表',
-                      child: Icon(Icons.cloud_off,
-                          size: 18, color: scheme.outline),
+                      child: Icon(
+                        Icons.cloud_off,
+                        size: 18,
+                        color: scheme.outline,
+                      ),
                     ),
                   ),
               ],
@@ -337,7 +347,7 @@ class _SchedulePageState extends State<SchedulePage> {
                           today: today,
                           isCurrentWeek: _isCurrent,
                           fitToScreen: true,
-                          rowHeight: 60.0,
+                          rowHeight: _compactRowHeight(context),
                           onEventTap: (occ) => _showDetail(context, occ),
                         ),
                       )
@@ -345,8 +355,9 @@ class _SchedulePageState extends State<SchedulePage> {
                         scrollDirection: Axis.horizontal,
                         child: SizedBox(
                           width: constraints.maxWidth.clamp(
-                              680 * MediaQuery.textScalerOf(context).scale(1),
-                              double.infinity),
+                            680 * MediaQuery.textScalerOf(context).scale(1),
+                            double.infinity,
+                          ),
                           child: _Grid(
                             days: days,
                             weekStart: _weekStart,
@@ -366,9 +377,25 @@ class _SchedulePageState extends State<SchedulePage> {
     );
   }
 
+  double _compactRowHeight(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final safeTop = MediaQuery.viewPaddingOf(context).top;
+    final headerHeight = 38 * MediaQuery.textScalerOf(context).scale(1);
+    // Reserve headers and bottom navigation; use readable rows on short screens.
+    return ((size.height -
+                safeTop -
+                portalBottomInset(context) -
+                headerHeight -
+                (isApple ? 260 : 220)) /
+            5)
+        .clamp(68.0, 108.0);
+  }
+
   // ── 添加日程 ─────────────────────────────────────────────
-  Future<void> _showEventForm(BuildContext context,
-      {DateTime? initialDate}) async {
+  Future<void> _showEventForm(
+    BuildContext context, {
+    DateTime? initialDate,
+  }) async {
     final s = AppScope.of(context);
     String kind = 'custom';
     DateTime date = initialDate ?? DateTime.now();
@@ -400,159 +427,175 @@ class _SchedulePageState extends State<SchedulePage> {
       showDragHandle: !isApple,
       useSafeArea: true,
       builder: (ctx) => _EventFormControllers(
-          builder: (ctx, nameCtrl, roomCtrl) => StatefulBuilder(
-                builder: (ctx, setSheet) => SingleChildScrollView(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(22, isApple ? 16 : 0, 22,
-                        22 + MediaQuery.of(ctx).viewInsets.bottom),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(children: [
-                          Expanded(
-                              child: Text('添加日程',
-                                  style: Theme.of(ctx).textTheme.titleLarge)),
-                          if (isApple)
-                            CupertinoButton(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 8),
-                                onPressed: () => Navigator.of(ctx).pop(),
-                                child: const Text('取消')),
-                        ]),
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: nameCtrl,
-                          autofocus: true,
-                          decoration: const InputDecoration(
-                            prefixIcon: Icon(Icons.edit_note),
-                            labelText: '标题',
-                            hintText: '如：高数期中考试、实验室例会',
-                          ),
+        builder: (ctx, nameCtrl, roomCtrl) => StatefulBuilder(
+          builder: (ctx, setSheet) => SingleChildScrollView(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                22,
+                isApple ? 16 : 0,
+                22,
+                22 + MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '添加日程',
+                          style: Theme.of(ctx).textTheme.titleLarge,
                         ),
-                        const SizedBox(height: 12),
-                        AdaptiveSegments<String>(
-                          values: const {'custom': '日程', 'exam': '考试'},
-                          selected: kind,
-                          onChanged: (value) => setSheet(() => kind = value),
+                      ),
+                      if (isApple)
+                        CupertinoButton(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          onPressed: () => Navigator.of(ctx).pop(),
+                          child: const Text('取消'),
                         ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _PickTile(
-                                icon: Icons.event,
-                                label: '日期',
-                                value: '${date.month}/${date.day}',
-                                onTap: () async {
-                                  await pickDate();
-                                  if (ctx.mounted) setSheet(() {});
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _PickTile(
-                                icon: Icons.schedule,
-                                label: '开始',
-                                value: start.format(ctx),
-                                onTap: () async {
-                                  await pickTime(true);
-                                  if (ctx.mounted) setSheet(() {});
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _PickTile(
-                                icon: Icons.schedule,
-                                label: '结束',
-                                value: end.format(ctx),
-                                onTap: () async {
-                                  await pickTime(false);
-                                  if (ctx.mounted) setSheet(() {});
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: roomCtrl,
-                          decoration: const InputDecoration(
-                            prefixIcon: Icon(Icons.place),
-                            labelText: '地点（可选）',
-                          ),
-                        ),
-                        const SizedBox(height: 18),
-                        AdaptiveFilledButton(
-                          onPressed: () {
-                            final name = nameCtrl.text.trim();
-                            final sm = start.hour * 60 + start.minute;
-                            final em = end.hour * 60 + end.minute;
-                            if (name.isEmpty) {
-                              ScaffoldMessenger.of(ctx).showSnackBar(
-                                  const SnackBar(content: Text('请填写标题')));
-                              return;
-                            }
-                            if (em <= sm) {
-                              ScaffoldMessenger.of(ctx).showSnackBar(
-                                  const SnackBar(content: Text('结束时间要晚于开始时间')));
-                              return;
-                            }
-                            HapticFeedback.lightImpact();
-                            s.addEvent(PlannerEvent(
-                              id: 'evt-${DateTime.now().millisecondsSinceEpoch}',
-                              name: name,
-                              dateIso: Semester.iso(date),
-                              startMinutes: sm,
-                              endMinutes: em,
-                              room: roomCtrl.text.trim(),
-                              kind: kind,
-                            ));
-                            Navigator.of(ctx).pop();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('已添加到本机课表，首页同步可见')));
-                          },
-                          child: const Text('保存到本机课表'),
-                        ),
-                        if (s.mode == SessionMode.live) ...[
-                          const SizedBox(height: 10),
-                          OutlinedButton.icon(
-                            onPressed: () {
-                              Navigator.of(ctx).pop();
-                              Navigator.of(context).push(MaterialPageRoute(
-                                builder: (_) => const WebViewPage(
-                                  title: '门户日程（官方）',
-                                  url:
-                                      'https://personal.neu.edu.cn/portal/pages/schedulesite/site/home?from=neu',
-                                ),
-                              ));
-                            },
-                            icon: const Icon(Icons.sync_alt, size: 18),
-                            label: const Text('在门户日程中添加（官方·含提醒/重复）'),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 6),
-                        Text(
-                          s.mode == SessionMode.live
-                              ? '本机日程即时显示在课表与首页；需官方提醒/重复请用门户日程'
-                              : '离线模式下日程仅保存在本机；登录门户后可用官方日程同步',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                              fontSize: 11,
-                              color:
-                                  Theme.of(ctx).colorScheme.onSurfaceVariant),
-                        ),
-                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: nameCtrl,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.edit_note),
+                      labelText: '标题',
+                      hintText: '如：高数期中考试、实验室例会',
                     ),
                   ),
-                ),
-              )),
+                  const SizedBox(height: 12),
+                  AdaptiveSegments<String>(
+                    values: const {'custom': '日程', 'exam': '考试'},
+                    selected: kind,
+                    onChanged: (value) => setSheet(() => kind = value),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _PickTile(
+                          icon: Icons.event,
+                          label: '日期',
+                          value: '${date.month}/${date.day}',
+                          onTap: () async {
+                            await pickDate();
+                            if (ctx.mounted) setSheet(() {});
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _PickTile(
+                          icon: Icons.schedule,
+                          label: '开始',
+                          value: start.format(ctx),
+                          onTap: () async {
+                            await pickTime(true);
+                            if (ctx.mounted) setSheet(() {});
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _PickTile(
+                          icon: Icons.schedule,
+                          label: '结束',
+                          value: end.format(ctx),
+                          onTap: () async {
+                            await pickTime(false);
+                            if (ctx.mounted) setSheet(() {});
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: roomCtrl,
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.place),
+                      labelText: '地点（可选）',
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  AdaptiveFilledButton(
+                    onPressed: () {
+                      final name = nameCtrl.text.trim();
+                      final sm = start.hour * 60 + start.minute;
+                      final em = end.hour * 60 + end.minute;
+                      if (name.isEmpty) {
+                        ScaffoldMessenger.of(
+                          ctx,
+                        ).showSnackBar(const SnackBar(content: Text('请填写标题')));
+                        return;
+                      }
+                      if (em <= sm) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(content: Text('结束时间要晚于开始时间')),
+                        );
+                        return;
+                      }
+                      HapticFeedback.lightImpact();
+                      s.addEvent(
+                        PlannerEvent(
+                          id: 'evt-${DateTime.now().millisecondsSinceEpoch}',
+                          name: name,
+                          dateIso: Semester.iso(date),
+                          startMinutes: sm,
+                          endMinutes: em,
+                          room: roomCtrl.text.trim(),
+                          kind: kind,
+                        ),
+                      );
+                      Navigator.of(ctx).pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('已添加到本机课表，首页同步可见')),
+                      );
+                    },
+                    child: const Text('保存到本机课表'),
+                  ),
+                  if (s.mode == SessionMode.live) ...[
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const WebViewPage(
+                              title: '门户日程（官方）',
+                              url:
+                                  'https://personal.neu.edu.cn/portal/pages/schedulesite/site/home?from=neu',
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.sync_alt, size: 18),
+                      label: const Text('在门户日程中添加（官方·含提醒/重复）'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 6),
+                  Text(
+                    s.mode == SessionMode.live
+                        ? '本机日程即时显示在课表与首页；需官方提醒/重复请用门户日程'
+                        : '离线模式下日程仅保存在本机；登录门户后可用官方日程同步',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -575,8 +618,8 @@ class _SchedulePageState extends State<SchedulePage> {
         final tone = NeuColors.adaptiveTone(context, NeuColors.slotTone(slot));
         final weekText = slot.weekStart > 0 && slot.weekEnd < 99
             ? (slot.weekStart == slot.weekEnd
-                ? '第${slot.weekStart}周'
-                : '第${slot.weekStart}-${slot.weekEnd}周')
+                  ? '第${slot.weekStart}周'
+                  : '第${slot.weekStart}-${slot.weekEnd}周')
             : null;
         return SafeArea(
           child: Padding(
@@ -590,14 +633,18 @@ class _SchedulePageState extends State<SchedulePage> {
                     Container(
                       width: 12,
                       height: 12,
-                      decoration:
-                          BoxDecoration(color: tone, shape: BoxShape.circle),
+                      decoration: BoxDecoration(
+                        color: tone,
+                        shape: BoxShape.circle,
+                      ),
                     ),
                     const SizedBox(width: 10),
                     if (slot.kind != 'course') ...[
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: tone.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(99),
@@ -605,9 +652,10 @@ class _SchedulePageState extends State<SchedulePage> {
                         child: Text(
                           slot.kind == 'exam' ? '考试' : '本机日程',
                           style: TextStyle(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w700,
-                              color: tone),
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            color: tone,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -615,23 +663,30 @@ class _SchedulePageState extends State<SchedulePage> {
                     Expanded(
                       child: Text(
                         slot.name,
-                        style: Theme.of(ctx)
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w800),
+                        style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 16),
-                _detailRow(ctx, Icons.schedule, '节次',
-                    '第$sp-${ep == sp ? sp : ep}节（${Semester.hm(slot.startMinutes)}–${Semester.hm(slot.endMinutes)}）'),
+                _detailRow(
+                  ctx,
+                  Icons.schedule,
+                  '节次',
+                  '第$sp-${ep == sp ? sp : ep}节（${Semester.hm(slot.startMinutes)}–${Semester.hm(slot.endMinutes)}）',
+                ),
                 if (weekText != null)
                   _detailRow(ctx, Icons.date_range, '周次', weekText),
                 _detailRow(ctx, Icons.place, '地点', slot.room),
                 if (event?.note.isNotEmpty == true)
                   _detailRow(
-                      ctx, Icons.sticky_note_2_outlined, '备注', event!.note),
+                    ctx,
+                    Icons.sticky_note_2_outlined,
+                    '备注',
+                    event!.note,
+                  ),
                 const SizedBox(height: 8),
                 if (deletable && event != null)
                   OutlinedButton.icon(
@@ -640,12 +695,14 @@ class _SchedulePageState extends State<SchedulePage> {
                       s.removeEvent(event.id);
                       Navigator.of(ctx).pop();
                       ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('已删除：${event.name}')));
+                        SnackBar(content: Text('已删除：${event.name}')),
+                      );
                     },
                     style: OutlinedButton.styleFrom(
                       foregroundColor: scheme.error,
                       side: BorderSide(
-                          color: scheme.error.withValues(alpha: 0.4)),
+                        color: scheme.error.withValues(alpha: 0.4),
+                      ),
                     ),
                     icon: const Icon(Icons.delete_outline, size: 18),
                     label: const Text('删除此日程'),
@@ -653,8 +710,10 @@ class _SchedulePageState extends State<SchedulePage> {
                 else if (slot.kind == 'course')
                   Text(
                     '课程安排来自门户课表',
-                    style:
-                        TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
               ],
             ),
@@ -687,13 +746,19 @@ class _SchedulePageState extends State<SchedulePage> {
           const SizedBox(width: 10),
           SizedBox(
             width: 40,
-            child: Text(k,
-                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+            child: Text(
+              k,
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+            ),
           ),
           Expanded(
-            child: Text(v,
-                style: const TextStyle(
-                    fontSize: 13.5, fontWeight: FontWeight.w500)),
+            child: Text(
+              v,
+              style: const TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ),
         ],
       ),
@@ -747,9 +812,14 @@ class _SemesterBanner extends StatelessWidget {
             Icon(icon, size: 15, color: fg),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(text,
-                  style: TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w600, color: fg)),
+              child: Text(
+                text,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: fg,
+                ),
+              ),
             ),
           ],
         ),
@@ -814,6 +884,8 @@ class _WeekSwitcher extends StatelessWidget {
                 const SizedBox(height: 1),
                 Text(
                   rangeText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 11.5,
                     color: scheme.onSurfaceVariant,
@@ -840,7 +912,9 @@ class _WeekSwitcher extends StatelessWidget {
             isApple
                 ? CupertinoButton(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 4),
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     minimumSize: const Size(32, 28),
                     color: scheme.primary.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(14),
@@ -848,8 +922,11 @@ class _WeekSwitcher extends StatelessWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(CupertinoIcons.calendar_today,
-                            size: 13, color: scheme.primary),
+                        Icon(
+                          CupertinoIcons.calendar_today,
+                          size: 13,
+                          color: scheme.primary,
+                        ),
                         const SizedBox(width: 3),
                         Text(
                           '本周',
@@ -875,8 +952,9 @@ class _WeekSwitcher extends StatelessWidget {
     );
 
     if (isApple) {
-      return IosGlassSurface(
-        radius: 14,
+      return Material(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(16),
         child: content,
       );
     }
@@ -886,10 +964,7 @@ class _WeekSwitcher extends StatelessWidget {
 
 // ── 课表视图模式栏（整周一屏 / 横向滑动）──────────────────
 class _ScheduleModeBar extends StatelessWidget {
-  const _ScheduleModeBar({
-    required this.fitToScreen,
-    required this.onToggle,
-  });
+  const _ScheduleModeBar({required this.fitToScreen, required this.onToggle});
 
   final bool fitToScreen;
   final VoidCallback onToggle;
@@ -907,8 +982,10 @@ class _ScheduleModeBar extends StatelessWidget {
               borderRadius: BorderRadius.circular(14),
               onTap: onToggle,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 9,
+                  vertical: 3.5,
+                ),
                 decoration: BoxDecoration(
                   color: fitToScreen
                       ? scheme.primary.withValues(alpha: 0.12)
@@ -925,9 +1002,7 @@ class _ScheduleModeBar extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      fitToScreen
-                          ? Icons.fit_screen
-                          : Icons.view_week_outlined,
+                      fitToScreen ? Icons.fit_screen : Icons.view_week_outlined,
                       size: 13,
                       color: fitToScreen
                           ? scheme.primary
@@ -954,9 +1029,9 @@ class _ScheduleModeBar extends StatelessWidget {
             child: Text(
               fitToScreen ? '一屏全览整周课程 · 点按看详情' : '左右滑动查看整周 · 点按看详情',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                    fontSize: 10.5,
-                  ),
+                color: scheme.onSurfaceVariant,
+                fontSize: 10.5,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -1000,76 +1075,79 @@ class _Grid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final double headerH = (fitToScreen ? 38.0 : 48.0) *
-        MediaQuery.textScalerOf(context).scale(1);
+    final double headerH =
+        (fitToScreen ? 38.0 : 48.0) * MediaQuery.textScalerOf(context).scale(1);
     final contentH = rowHeight * 5;
 
-    final gridContent = Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _PeriodColumn(
-          weekStart: weekStart,
-          fitToScreen: fitToScreen,
-          rowHeight: rowHeight,
-        ),
-        for (var d = 0; d < 7; d++)
-          _DayColumn(
-            weekday: d + 1,
-            date: weekStart.add(Duration(days: (d + 1) % 7)),
-            occurrences: days[d],
-            isToday: isCurrentWeek &&
-                _sameDay(weekStart.add(Duration(days: (d + 1) % 7)), today),
-            flex: fitToScreen ? (d >= 5 ? 75 : 100) : (d >= 5 ? 62 : 100),
-            fitToScreen: fitToScreen,
-            rowHeight: rowHeight,
-            onEventTap: onEventTap,
+    final periodWidth = fitToScreen ? 32.0 : 66.0;
+    final gridContent = SizedBox(
+      height: headerH + contentH,
+      child: Stack(
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _PeriodColumn(
+                weekStart: weekStart,
+                fitToScreen: fitToScreen,
+                rowHeight: rowHeight,
+                headerHeight: headerH,
+                width: periodWidth,
+              ),
+              for (var d = 0; d < 7; d++)
+                _DayColumn(
+                  weekday: d + 1,
+                  date: weekStart.add(Duration(days: (d + 1) % 7)),
+                  occurrences: days[d],
+                  isToday:
+                      isCurrentWeek &&
+                      _sameDay(
+                        weekStart.add(Duration(days: (d + 1) % 7)),
+                        today,
+                      ),
+                  fitToScreen: fitToScreen,
+                  rowHeight: rowHeight,
+                  headerHeight: headerH,
+                  onEventTap: onEventTap,
+                ),
+            ],
           ),
-      ],
-    );
-
-    Widget grid = isApple
-        ? Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: IosGlassSurface(
-              radius: Ds.rLg,
-              child: gridContent,
-            ),
-          )
-        : Card(
-            margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: gridContent,
-          );
-
-    if (isCurrentWeek) {
-      final cur = today.hour * 60 + today.minute;
-      if (cur >= Semester.periodStarts.first &&
-          cur <= Semester.periodEnds.last) {
-        grid = Stack(
-          children: [
-            grid,
+          if (isCurrentWeek &&
+              today.hour * 60 + today.minute >= Semester.periodStarts.first &&
+              today.hour * 60 + today.minute <= Semester.periodEnds.last)
             Positioned(
-              left: fitToScreen ? 24 : 64,
-              right: 10,
-              top: headerH + minuteToY(cur, rowHeight),
+              key: const ValueKey('schedule-now-line'),
+              left: periodWidth,
+              right: 0,
+              top:
+                  headerH +
+                  minuteToY(today.hour * 60 + today.minute, rowHeight),
               child: IgnorePointer(
                 child: Container(
-                  height: 1.6,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        scheme.error,
-                        scheme.error.withValues(alpha: 0.1),
-                      ],
-                    ),
-                  ),
+                  height: 1.5,
+                  color: scheme.error.withValues(alpha: 0.6),
                 ),
               ),
             ),
-          ],
-        );
-      }
-    }
-    return SizedBox(height: contentH + headerH + 28, child: grid);
+        ],
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Material(
+        color: scheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(
+            color: scheme.outlineVariant.withValues(alpha: 0.4),
+            width: 0.5,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: gridContent,
+      ),
+    );
   }
 
   bool _sameDay(DateTime a, DateTime b) =>
@@ -1079,6 +1157,8 @@ class _Grid extends StatelessWidget {
 class _PeriodColumn extends StatelessWidget {
   const _PeriodColumn({
     required this.weekStart,
+    required this.headerHeight,
+    required this.width,
     this.fitToScreen = false,
     this.rowHeight = _SchedulePageState._rowH,
   });
@@ -1086,39 +1166,36 @@ class _PeriodColumn extends StatelessWidget {
   final DateTime weekStart;
   final bool fitToScreen;
   final double rowHeight;
+  final double headerHeight;
+  final double width;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return SizedBox(
-      width: fitToScreen ? 24 : 64,
+      width: width,
       child: Column(
         children: [
-          Padding(
-            padding: EdgeInsets.symmetric(vertical: fitToScreen ? 2 : 6),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '${weekStart.month}月',
-                  style: TextStyle(
-                    fontSize: fitToScreen ? 9.5 : 11,
-                    fontWeight: FontWeight.w700,
-                    color: scheme.onSurfaceVariant,
-                  ),
+          SizedBox(
+            key: const ValueKey('schedule-period-header'),
+            height: headerHeight,
+            child: Center(
+              child: Text(
+                '${weekStart.month}月',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: fitToScreen ? 9.5 : 11,
+                  fontWeight: FontWeight.w700,
+                  color: scheme.onSurfaceVariant,
                 ),
-                const SizedBox(height: 1),
-                Text(
-                  '',
-                  style: TextStyle(
-                    fontSize: fitToScreen ? 9.0 : 10,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
           for (var pair = 0; pair < 5; pair++)
-            Expanded(
+            SizedBox(
+              key: ValueKey('schedule-period-$pair'),
+              height: rowHeight,
               child: fitToScreen
                   ? Center(
                       child: Column(
@@ -1138,8 +1215,9 @@ class _PeriodColumn extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 9.0,
                               fontWeight: FontWeight.w600,
-                              color: scheme.onSurfaceVariant
-                                  .withValues(alpha: 0.7),
+                              color: scheme.onSurfaceVariant.withValues(
+                                alpha: 0.7,
+                              ),
                             ),
                           ),
                         ],
@@ -1169,8 +1247,9 @@ class _PeriodColumn extends StatelessWidget {
                           Semester.hm(Semester.periodStarts[pair * 2 + 1]),
                           style: TextStyle(
                             fontSize: 9.5,
-                            color:
-                                scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                            color: scheme.onSurfaceVariant.withValues(
+                              alpha: 0.7,
+                            ),
                             fontFeatures: const [FontFeature.tabularFigures()],
                           ),
                         ),
@@ -1189,7 +1268,7 @@ class _DayColumn extends StatelessWidget {
     required this.date,
     required this.occurrences,
     required this.isToday,
-    required this.flex,
+    required this.headerHeight,
     required this.onEventTap,
     this.fitToScreen = false,
     this.rowHeight = _SchedulePageState._rowH,
@@ -1199,7 +1278,7 @@ class _DayColumn extends StatelessWidget {
   final DateTime date;
   final List<CourseOccurrence> occurrences;
   final bool isToday;
-  final int flex;
+  final double headerHeight;
   final void Function(CourseOccurrence) onEventTap;
   final bool fitToScreen;
   final double rowHeight;
@@ -1210,64 +1289,73 @@ class _DayColumn extends StatelessWidget {
     final holiday = Semester.isHoliday(date);
 
     return Expanded(
-      flex: flex,
       child: Column(
         children: [
-          Padding(
-            padding: EdgeInsets.symmetric(vertical: fitToScreen ? 2 : 6),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
-              decoration: isToday
-                  ? BoxDecoration(
-                      color: scheme.primary.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    )
-                  : null,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        fitToScreen
-                            ? ['一', '二', '三', '四', '五', '六', '日'][weekday - 1]
-                            : Fmt.weekNames[weekday - 1],
-                        style: TextStyle(
-                          fontSize: fitToScreen ? 10.5 : 11,
-                          fontWeight:
-                              isToday ? FontWeight.w800 : FontWeight.w600,
-                          color: isToday
-                              ? scheme.primary
-                              : scheme.onSurfaceVariant,
+          SizedBox(
+            key: ValueKey('schedule-day-header-$weekday'),
+            height: headerHeight,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+                decoration: isToday
+                    ? BoxDecoration(
+                        color: scheme.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      )
+                    : null,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          fitToScreen
+                              ? ['一', '二', '三', '四', '五', '六', '日'][weekday - 1]
+                              : Fmt.weekNames[weekday - 1],
+                          style: TextStyle(
+                            fontSize: fitToScreen ? 10.5 : 11,
+                            fontWeight: isToday
+                                ? FontWeight.w800
+                                : FontWeight.w600,
+                            color: isToday
+                                ? scheme.primary
+                                : scheme.onSurfaceVariant,
+                          ),
                         ),
-                      ),
-                      if (holiday && !fitToScreen) ...[
-                        const SizedBox(width: 2),
-                        Text('休',
-                            style:
-                                TextStyle(fontSize: 8, color: scheme.tertiary)),
+                        if (holiday && !fitToScreen) ...[
+                          const SizedBox(width: 2),
+                          Text(
+                            '休',
+                            style: TextStyle(
+                              fontSize: 8,
+                              color: scheme.tertiary,
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
-                  ),
-                  const SizedBox(height: 1),
-                  Text(
-                    fitToScreen ? '${date.day}' : '${date.month}/${date.day}',
-                    style: TextStyle(
-                      fontSize: fitToScreen ? 9.0 : 10,
-                      fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
-                      color: isToday
-                          ? scheme.primary
-                          : scheme.onSurfaceVariant.withValues(alpha: 0.75),
-                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 1),
+                    Text(
+                      fitToScreen ? '${date.day}' : '${date.month}/${date.day}',
+                      style: TextStyle(
+                        fontSize: fitToScreen ? 9.0 : 10,
+                        fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
+                        color: isToday
+                            ? scheme.primary
+                            : scheme.onSurfaceVariant.withValues(alpha: 0.75),
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-          Expanded(
+          SizedBox(
+            key: ValueKey('schedule-day-body-$weekday'),
+            height: rowHeight * 5,
             child: Stack(
               children: [
                 // 大节分隔线（5 行）
@@ -1277,15 +1365,23 @@ class _DayColumn extends StatelessWidget {
                       for (var pair = 0; pair < 5; pair++)
                         Expanded(
                           child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 2),
                             decoration: BoxDecoration(
+                              color: isToday
+                                  ? scheme.primary.withValues(alpha: 0.025)
+                                  : null,
                               border: Border(
-                                top: pair == 0
-                                    ? BorderSide.none
-                                    : BorderSide(
-                                        color: scheme.outlineVariant
-                                            .withValues(alpha: 0.35),
-                                      ),
+                                top: BorderSide(
+                                  color: scheme.outlineVariant.withValues(
+                                    alpha: 0.3,
+                                  ),
+                                  width: 0.5,
+                                ),
+                                left: BorderSide(
+                                  color: scheme.outlineVariant.withValues(
+                                    alpha: 0.2,
+                                  ),
+                                  width: 0.5,
+                                ),
                               ),
                             ),
                           ),
@@ -1298,9 +1394,11 @@ class _DayColumn extends StatelessWidget {
                     left: 2,
                     right: 2,
                     top: rowHeight * 0.3,
-                    child: const Text('假期',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 9.0, color: Colors.grey)),
+                    child: const Text(
+                      '假期',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 9.0, color: Colors.grey),
+                    ),
                   ),
                 for (final o in occurrences) _buildBlock(context, o),
               ],
@@ -1326,32 +1424,35 @@ class _DayColumn extends StatelessWidget {
     final exam = slot.kind == 'exam';
     final weekText = slot.weekStart > 0 && slot.weekEnd < 99
         ? (slot.weekStart == slot.weekEnd
-            ? '${slot.weekStart}周'
-            : '${slot.weekStart}-${slot.weekEnd}周')
+              ? '${slot.weekStart}周'
+              : '${slot.weekStart}-${slot.weekEnd}周')
         : '';
     final tall = h >= (fitToScreen ? 70 : 80);
     final isCompact = fitToScreen || h < 55;
 
     return Positioned(
-      left: fitToScreen ? 1.5 : 4,
-      right: fitToScreen ? 1.5 : 4,
-      top: top + 1,
-      height: (h - 2).clamp(16.0, double.infinity),
+      key: ValueKey(
+        'schedule-course-$weekday-${Semester.iso(occ.date)}-${slot.startMinutes}-${slot.name}',
+      ),
+      left: fitToScreen ? 2 : 4,
+      right: fitToScreen ? 2 : 4,
+      top: top + 3,
+      height: (h - 6).clamp(16.0, double.infinity),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(fitToScreen ? 6 : 9),
+          borderRadius: BorderRadius.circular(fitToScreen ? 7 : 10),
           onTap: () => onEventTap(occ),
           child: Container(
             padding: EdgeInsets.symmetric(
               horizontal: fitToScreen ? 2 : 4,
-              vertical: fitToScreen ? 2 : 3,
+              vertical: fitToScreen ? 5 : 6,
             ),
             decoration: BoxDecoration(
-              color: tone.withValues(alpha: custom ? 0.10 : 0.18),
-              borderRadius: BorderRadius.circular(fitToScreen ? 6 : 9),
+              color: tone.withValues(alpha: custom ? 0.08 : 0.11),
+              borderRadius: BorderRadius.circular(fitToScreen ? 7 : 10),
               border: Border.all(
-                color: tone.withValues(alpha: custom ? 0.7 : 0.6),
+                color: tone.withValues(alpha: custom ? 0.45 : 0.18),
                 width: custom ? 1.2 : 0.9,
               ),
             ),
@@ -1362,14 +1463,20 @@ class _DayColumn extends StatelessWidget {
                 if ((exam || custom) && !isCompact && h >= 65) ...[
                   Row(
                     children: [
-                      Icon(exam ? Icons.fact_check : Icons.push_pin,
-                          size: 9, color: tone),
+                      Icon(
+                        exam ? Icons.fact_check : Icons.push_pin,
+                        size: 9,
+                        color: tone,
+                      ),
                       const SizedBox(width: 2),
-                      Text(exam ? '考试' : '日程',
-                          style: TextStyle(
-                              fontSize: 8,
-                              fontWeight: FontWeight.w800,
-                              color: tone)),
+                      Text(
+                        exam ? '考试' : '日程',
+                        style: TextStyle(
+                          fontSize: 8,
+                          fontWeight: FontWeight.w800,
+                          color: tone,
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 1),
@@ -1377,17 +1484,17 @@ class _DayColumn extends StatelessWidget {
                 Flexible(
                   child: Text(
                     slot.name,
-                    maxLines: h >= 50 ? (tall ? 3 : 2) : 1,
+                    maxLines: h >= 68 ? 3 : (h >= 50 ? 2 : 1),
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: fitToScreen ? 8.5 : 9.5,
+                      fontSize: fitToScreen ? 10 : 11,
                       height: 1.15,
                       fontWeight: FontWeight.w700,
                       color: tone,
                     ),
                   ),
                 ),
-                if (tall && weekText.isNotEmpty && h >= 80)
+                if (!fitToScreen && tall && weekText.isNotEmpty && h >= 80)
                   Text(
                     weekText,
                     style: TextStyle(
@@ -1402,7 +1509,7 @@ class _DayColumn extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: fitToScreen ? 7.5 : 8.5,
+                      fontSize: fitToScreen ? 8.5 : 9.5,
                       color: tone.withValues(alpha: 0.92),
                       fontWeight: FontWeight.w500,
                     ),
@@ -1450,9 +1557,13 @@ class _PickTile extends StatelessWidget {
               children: [
                 Icon(icon, size: 13, color: scheme.primary),
                 const SizedBox(width: 4),
-                Text(label,
-                    style: TextStyle(
-                        fontSize: 10.5, color: scheme.onSurfaceVariant)),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 3),
@@ -1461,9 +1572,10 @@ class _PickTile extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: [FontFeature.tabularFigures()]),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
             ),
           ],
         ),
@@ -1476,7 +1588,11 @@ class _PickTile extends StatelessWidget {
 class _EventFormControllers extends StatefulWidget {
   const _EventFormControllers({required this.builder});
   final Widget Function(
-      BuildContext, TextEditingController, TextEditingController) builder;
+    BuildContext,
+    TextEditingController,
+    TextEditingController,
+  )
+  builder;
   @override
   State<_EventFormControllers> createState() => _EventFormControllersState();
 }

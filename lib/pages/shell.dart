@@ -22,6 +22,30 @@ class _AdaptiveShellState extends State<AdaptiveShell> {
   int _index = 0;
   final Set<int> _visited = {0};
 
+  @override
+  void initState() {
+    super.initState();
+    _warmNextTab();
+  }
+
+  // Wait for active animations, then prepare one destination per frame.
+  // A tap can always mount a tab immediately, even before preparation finishes.
+  void _warmNextTab() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _visited.length == _pages.length) return;
+      if (WidgetsBinding.instance.transientCallbackCount > 0) {
+        _warmNextTab();
+        return;
+      }
+      final next = List.generate(
+        _pages.length,
+        (i) => i,
+      ).firstWhere((i) => !_visited.contains(i));
+      setState(() => _visited.add(next));
+      if (_visited.length < _pages.length) _warmNextTab();
+    });
+  }
+
   /// 重复选择当前页签即回顶，也支持双击；不依赖原生底栏的回调时序。
   void _select(int i) {
     if (_index == i) {
@@ -198,11 +222,15 @@ class _AdaptiveShellState extends State<AdaptiveShell> {
       bottomNavigationBar: bottomBar,
     );
 
-    return PortalNavigation(select: _select, child: body);
+    return PortalNavigation(
+      select: _select,
+      bottomInset: wide ? 0 : portalBottomInset(context),
+      child: body,
+    );
   }
 }
 
-/// 首次访问才创建页面；切页立即显示，保留状态并暂停不可见页面的动画。
+/// 保留已准备页面，隐藏页面不绘制、不可聚焦且暂停动画。
 class _LazyIndexedStack extends StatelessWidget {
   const _LazyIndexedStack({
     required this.index,
@@ -224,7 +252,13 @@ class _LazyIndexedStack extends StatelessWidget {
           if (visited.contains(i))
             TickerMode(
               enabled: i == index,
-              child: RepaintBoundary(child: children[i]),
+              child: ExcludeFocus(
+                excluding: i != index,
+                child: PortalTabContent(
+                  animateEntrance: false,
+                  child: RepaintBoundary(child: children[i]),
+                ),
+              ),
             )
           else
             const SizedBox.shrink(),

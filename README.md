@@ -36,6 +36,10 @@
 - 深浅色双主题；Android 12+ 支持跟随壁纸动态取色（`dynamic_color`）
 - 全中文界面；触感反馈（切页/点课表/刷新）
 
+Tab 在启动动画结束后的空闲帧逐页准备，切换保留搜索和滚动状态；主页面直接显示内容，避免重复的列表渐入和数字滚动。iOS 内容卡片使用不透明材质，模糊集中在导航层；悬浮胶囊和全宽底栏共用轻量选中态，并适配减少动态效果、高对比度和底部安全区。课表七列等宽，表头、节次和课程块共用行高。
+
+设计依据：[Apple Liquid Glass 原则](https://developer.apple.com/videos/play/wwdc2025/219/)建议将玻璃留在导航层、避免层层叠加；[Flutter 性能建议](https://docs.flutter.dev/perf/best-practices)强调控制构建成本，减少不必要的透明度和合成效果。实际帧率仍需在物理设备的 profile/release 构建中测量；widget 测试和截图只验证布局、状态保留与交互。
+
 ## 🚀 构建与运行
 
 环境：Flutter 3.47.8 / Dart 3.12.1+（本机 Flutter 位于 `D:\flutter`）+ 各平台工具链。iOS 原生液态玻璃需 Xcode 26+ / iOS 26 SDK 编译，运行时仍支持 iOS 15+。
