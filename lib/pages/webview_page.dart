@@ -93,7 +93,7 @@ class _WebViewPageState extends State<WebViewPage> {
   bool _canGoBack = false;
   bool _canGoForward = false;
   final _httpRetriedOrigins = <String>{};
-  bool _webLoginCapturing = false;
+  int? _webLoginCapture;
   bool _webLoginDone = false;
   bool _gatewayAuthTried = false;
   bool _portalLandingTried = false;
@@ -156,7 +156,8 @@ class _WebViewPageState extends State<WebViewPage> {
     if (anim != null) {
       if (anim.isCompleted) {
         _viewReady = true;
-      } else {
+      } else if (_routeAnimation != anim) {
+        _routeAnimation?.removeStatusListener(_onRouteAnimationStatus);
         _routeAnimation = anim;
         anim.addStatusListener(_onRouteAnimationStatus);
       }
@@ -360,8 +361,11 @@ class _WebViewPageState extends State<WebViewPage> {
     }
     if (PortalWebPolicy.isCasLogin(_currentUri)) {
       if (!mounted) return;
+      final document = _documentGeneration;
       final creds = await state.storedCredentials();
-      final ok = await _autoCasLogin();
+      if (!mounted || document != _documentGeneration) return;
+      final ok = creds != null && await _autoCasLogin(creds);
+      if (!mounted || document != _documentGeneration) return;
       // 只有确实用已存凭据尝试过自动登录且失败时才是「会话失效」；
       // 全新登录页（未存凭据/网页登录模式）不显示过期横幅。
       if (!ok && creds != null && !widget.loginMode) {
@@ -377,10 +381,12 @@ class _WebViewPageState extends State<WebViewPage> {
   /// 在门户页面内读取 window.userInfoDSL（轮询调用，SPA 可能在停稳后才写入）。
   Future<void> _tryCaptureUserInfo() async {
     if (!mounted) return;
+    final generation = _documentGeneration;
     try {
       final v = _unwrapJsResult(await _controller.runJavaScriptReturningResult(
         portalDocumentScript,
       ));
+      if (!mounted || generation != _documentGeneration) return;
       if (v.isNotEmpty && v != '{}') {
         final document = Map<String, dynamic>.from(jsonDecode(v) as Map);
         _documentHasLoginForm = document['loginForm'] == true;
@@ -415,43 +421,38 @@ class _WebViewPageState extends State<WebViewPage> {
     return value;
   }
 
-  /// 读取 WebView 会话 Cookie（iOS: WKHTTPCookieStore；Android: CookieManager）。
-  Future<List<WebViewCookie>> _captureCookies(Uri uri) async {
-    return captureWebViewCookies(uri);
+  Future<String> _readUserAgent() async {
+    try {
+      return _unwrapJsResult(
+        await _controller.runJavaScriptReturningResult('navigator.userAgent'),
+      );
+    } catch (_) {
+      return '';
+    }
   }
 
   /// 吸收会话并完成登录，成功后退出本页回到主界面。
   Future<void> _completeWebLogin() async {
-    if (_webLoginCapturing) return;
-    _webLoginCapturing = true;
+    final generation = _documentGeneration;
+    if (_webLoginDone || _webLoginCapture == generation) return;
+    _webLoginCapture = generation;
     final state = AppScope.of(context);
+    bool current() => mounted && generation == _documentGeneration;
     try {
-      // 必须等待 JS 调用完成；非空的初始对象不代表资料已填充完整。
-      for (var i = 0; i < 6 && mounted; i++) {
+      final cookiesRead = captureWebLoginCookies(landing: _currentUri);
+      // 收集会话时给 SPA 留出短暂的资料填充时间，缺失字段可由门户补齐。
+      for (var i = 0; i < 3 && current() && !_hasCoreProfile; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+        if (!current()) return;
         await _tryCaptureUserInfo();
-        if (_hasCoreProfile) break;
-        await Future.delayed(const Duration(milliseconds: 700));
+        if (_documentHasLoginForm) return;
       }
-      if (!mounted) return;
-      if (_documentHasLoginForm || _currentUri.path.contains('/tpass/login')) {
-        _webLoginCapturing = false;
+      final ua = await _readUserAgent();
+      final cookies = await cookiesRead;
+      if (!current() || _documentHasLoginForm ||
+          PortalWebPolicy.isCasLogin(_currentUri)) {
         return;
       }
-      final cookies = <WebViewCookie>[
-        ...await _captureCookies(Uri.parse('https://pass.neu.edu.cn/tpass/login')),
-        ...await _captureCookies(Uri.parse('https://personal.neu.edu.cn/portal')),
-        ...await _captureCookies(Uri.parse('https://webvpn.neu.edu.cn/')),
-        if (_currentUri.host == 'webvpn.neu.edu.cn')
-          ...await _captureCookies(_currentUri),
-        ...await _captureCookies(Uri.parse('https://portal.neu.edu.cn/tp_up/')),
-      ];
-      _diag('回收 ${cookies.length} 枚 Cookie：${cookies.map((c) => '${c.domain}#${c.name}').take(14).join(', ')}');
-      _diag('userInfoDSL: ${_capturedUserInfoJson.isEmpty ? '未捕获' : '已捕获'}');
-      String ua = '';
-      try {
-        ua = _unwrapJsResult(await _controller.runJavaScriptReturningResult('navigator.userAgent'));
-      } catch (_) {}
-      _diag('UA: $ua');
       final ok = await state.completeWebLogin(
         cookies
             .map((c) => (name: c.name, value: c.value, domain: c.domain, path: c.path))
@@ -465,7 +466,7 @@ class _WebViewPageState extends State<WebViewPage> {
         _webLoginDone = true;
         final navigator = Navigator.of(context);
         if (navigator.canPop()) {
-          navigator.pop();
+          navigator.pop(true);
         } else {
           navigator.pushReplacement(
               MaterialPageRoute(builder: (_) => const AdaptiveShell()));
@@ -473,20 +474,17 @@ class _WebViewPageState extends State<WebViewPage> {
         return;
       }
       _diag('登录未完成：${state.lastError}');
-      _webLoginCapturing = false;
       mountedSet(() => _error = state.lastError ?? '网页登录未完成，请重试。');
     } catch (e) {
       _diag('会话回收异常：$e');
-      _webLoginCapturing = false;
       if (mounted) mountedSet(() => _error = '网页登录会话回收失败，请重试。');
+    } finally {
+      if (_webLoginCapture == generation) _webLoginCapture = null;
     }
   }
 
-  Future<bool> _autoCasLogin() async {
+  Future<bool> _autoCasLogin((String, String) creds) async {
     if (_casAttempts >= 2) return false;
-    final s = AppScope.of(context);
-    final creds = await s.storedCredentials();
-    if (creds == null) return false;
     _casAttempts++;
     try {
       String str(Object? value) {

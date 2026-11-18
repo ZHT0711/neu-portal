@@ -41,8 +41,13 @@ LearningAssignment assignment(String id, LearningCourse course) =>
 class GradeClient extends PortalClient {
   final response = Completer<GradeReport>();
   final week = Completer<List<CourseOccurrence>>();
+  int weekCalls = 0;
   @override
-  Future<List<CourseOccurrence>> fetchWeek(DateTime day) => week.future;
+  Future<List<CourseOccurrence>> fetchWeek(DateTime day) {
+    weekCalls++;
+    return week.future;
+  }
+
   int calls = 0;
   @override
   Future<GradeReport> fetchGradeReport() {
@@ -67,6 +72,26 @@ void main() {
       state.dispose();
     },
   );
+
+  test('timetable callers share an in-flight week and reuse its cached result', () async {
+    final client = GradeClient();
+    final state = AppState.withClient(client)..mode = SessionMode.live;
+    addTearDown(state.dispose);
+    final monday = DateTime(2026, 11, 2);
+    final friday = DateTime(2026, 11, 6);
+    final first = state.fetchWeek(monday);
+    final second = state.fetchWeek(friday, force: true);
+    expect(client.weekCalls, 1);
+    client.week.complete([]);
+    final results = await Future.wait([first, second]);
+    expect(identical(results.first, results.last), isTrue);
+    expect(await state.fetchWeek(friday), isEmpty);
+    expect(client.weekCalls, 1);
+    await state.fetchWeek(friday, force: true);
+    expect(client.weekCalls, 2);
+    state.enterDemo();
+    expect(state.cachedWeek(friday), isNull);
+  });
 
   test(
     '307 platform redirects preserve POST encoding, referer and updated cookies',

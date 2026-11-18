@@ -33,21 +33,21 @@ Future<List<WebViewCookie>> captureWebViewCookies(Uri uri) async {
 }
 
 /// 汇总登录相关 Cookie（含网关代理路径，按 name+domain+path 去重）。
-Future<List<WebViewCookie>> captureWebLoginCookies() async {
-  final out = <WebViewCookie>[];
-  final seen = <String>{};
-  for (final uri in [
+Future<List<WebViewCookie>> captureWebLoginCookies({Uri? landing}) async {
+  final reads = await Future.wait({
     Uri.parse('https://pass.neu.edu.cn/tpass/login'),
     Uri.parse('https://personal.neu.edu.cn/portal'),
     Uri.parse('https://webvpn.neu.edu.cn/'),
     Uri.parse('https://portal.neu.edu.cn/tp_up/'),
     Uri.parse(WebVPN.wrap('https://personal.neu.edu.cn/portal')),
-  ]) {
-    for (final c in await captureWebViewCookies(uri)) {
-      final key = '${c.domain}|${c.path}|${c.name}';
-      if (c.name.isEmpty || c.value.isEmpty || !seen.add(key)) continue;
-      out.add(c);
-    }
+    if (landing?.host == 'webvpn.neu.edu.cn') landing!,
+  }.map(captureWebViewCookies));
+  final out = <WebViewCookie>[];
+  final seen = <String>{};
+  for (final c in reads.expand((cookies) => cookies)) {
+    final key = '${c.domain}|${c.path}|${c.name}';
+    if (c.name.isEmpty || c.value.isEmpty || !seen.add(key)) continue;
+    out.add(c);
   }
   return out;
 }

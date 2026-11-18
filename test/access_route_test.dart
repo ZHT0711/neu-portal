@@ -88,6 +88,27 @@ void main() {
     );
   }
 
+  test('a confirmed campus route need not wait for the slow backup probe', () async {
+    final backup = Completer<http.Response>();
+    final client = PortalClient(
+      httpClient: MockClient((request) async {
+        if (request.url.host == 'ecard.neu.edu.cn') return backup.future;
+        return http.Response(
+          '教务管理系统 jwapp',
+          200,
+          headers: {'content-type': 'text/html; charset=utf-8'},
+        );
+      }),
+    );
+    addTearDown(client.dispose);
+    try {
+      await client.prepareAccess().timeout(const Duration(seconds: 1));
+      expect(client.webvpnOn, isFalse);
+    } finally {
+      backup.complete(http.Response('', 403));
+    }
+  });
+
   test('campus authentication redirects prove direct reachability', () async {
     final client = PortalClient(
       httpClient: MockClient(

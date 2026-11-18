@@ -108,6 +108,41 @@ void main() {
     expect(restored, isNull);
   });
 
+  test('web login completes while a slow portal sync is still pending', () async {
+    final client = _Client()..blockedApps = Completer<List<PortalApp>>();
+    final state = AppState.withClient(client);
+    addTearDown(state.dispose);
+    final success = await state.completeWebLogin([
+      (name: 'wengine_vpn_ticket', value: 'ticket==', domain: 'webvpn.neu.edu.cn', path: '/'),
+    ], userInfoJson: jsonEncode(_profile.toInfoJson()));
+    expect(success, isTrue);
+    expect(state.loading, isFalse);
+    expect(state.mode, SessionMode.live);
+    expect(state.liveAvailable, isFalse);
+    expect(await _secure.read(key: _key), isNotNull);
+    client.blockedApps!.complete([]);
+    await state.refresh();
+    expect(state.liveAvailable, isTrue);
+  });
+
+  test('concurrent restoration shares validation and cannot undo demo mode', () async {
+    FlutterSecureStorage.setMockInitialValues({_key: _snapshot(_cookies())});
+    final client = _Client()..validation = Completer<PortalUser?>();
+    final state = AppState.withClient(client);
+    addTearDown(state.dispose);
+    await state.loadSettings();
+    final first = state.restoreSession();
+    final second = state.restoreSession();
+    expect(identical(first, second), isTrue);
+    await client.validating.future;
+    state.enterDemo();
+    client.validation!.complete(_profile);
+    await first;
+    expect(state.mode, SessionMode.demo);
+    expect(state.usesWebSession, isFalse);
+    expect(restored, isNull);
+  });
+
   test('expired authentication cookies are not revived', () async {
     final cookies = _cookies();
     for (final c in cookies) { c['expires'] = 1; }
@@ -215,8 +250,13 @@ class _Client extends PortalClient {
   @override
   Future<bool> isCampusNet() async => false;
   Object? failure;
+  Completer<List<PortalApp>>? blockedApps;
+  Completer<PortalUser?>? validation;
+  final validating = Completer<void>();
   @override
   Future<PortalUser?> validateSavedSession() async {
+    if (!validating.isCompleted) validating.complete();
+    if (validation != null) return validation!.future;
     if (failure != null) throw failure!;
     return _profile;
   }
@@ -225,7 +265,7 @@ class _Client extends PortalClient {
   @override
   Future<PortalUser> fetchUserInfo() async => _profile;
   @override
-  Future<List<PortalApp>> fetchApps() async => [];
+  Future<List<PortalApp>> fetchApps() async => blockedApps == null ? [] : await blockedApps!.future;
   @override
   Future<List<CourseOccurrence>> fetchWeek(DateTime anyDayInWeek) async => [];
   @override

@@ -141,6 +141,7 @@ void main() {
     final fake = _FakeWebPlatform();
     WebViewPlatform.instance = fake;
     final state = _CapturingLoginState();
+    bool? result;
     try {
       await tester.pumpWidget(
         AppScope(
@@ -149,15 +150,17 @@ void main() {
             home: Builder(
               builder: (context) => Scaffold(
                 body: TextButton(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const WebViewPage(
-                        title: '登录',
-                        url: WebVPN.base,
-                        loginMode: true,
+                  onPressed: () async {
+                    result = await Navigator.of(context).push<bool>(
+                      MaterialPageRoute<bool>(
+                        builder: (_) => const WebViewPage(
+                          title: '登录',
+                          url: WebVPN.base,
+                          loginMode: true,
+                        ),
                       ),
-                    ),
-                  ),
+                    );
+                  },
                   child: const Text('网页登录'),
                 ),
               ),
@@ -196,6 +199,7 @@ void main() {
       expect(state.captured?.hasCoreProfile, isTrue);
       expect(state.captured?.email, 'test@example.edu');
       expect(state.agent, 'Test WebKit');
+      expect(result, isTrue);
       expect(find.byType(WebViewPage), findsNothing);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());

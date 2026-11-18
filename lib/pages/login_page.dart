@@ -50,19 +50,16 @@ class _LoginPageState extends State<LoginPage> {
     // 记住的账号存在本地偏好里（不存密码）。
     final p = await SharedPreferences.getInstance();
     final saved = p.getString('cas.user');
-    if (!mounted) return;
-    if (saved != null && saved.isNotEmpty) {
-      setState(() {
-        _sid.text = saved;
-        _remember = true;
-      });
+    if (mounted && _sid.text.isEmpty && saved != null && saved.isNotEmpty) {
+      _sid.text = saved;
     }
   }
 
   Future<void> _submit() async {
     if (_loading) return;
     final sid = _sid.text.trim();
-    if (sid.isEmpty || _pwd.text.isEmpty) {
+    final password = _pwd.text;
+    if (sid.isEmpty || password.isEmpty) {
       setState(() => _error = '请输入学号/工号和密码');
       return;
     }
@@ -73,19 +70,9 @@ class _LoginPageState extends State<LoginPage> {
     });
     final state = AppScope.of(context);
     try {
-      await state.login(sid, _pwd.text);
-      final p = await SharedPreferences.getInstance();
-      if (_remember) {
-        await p.setString('cas.user', sid);
-      } else {
-        await p.remove('cas.user');
-      }
-      // 保持登录：凭证进本机安全存储，之后各系统 SSO 免登录、重启自动续登
-      if (_keepLogin) {
-        await state.saveCredentials(sid, _pwd.text);
-      } else {
-        await state.clearCredentials();
-      }
+      await state.login(sid, password);
+      if (!mounted) return;
+      await _rememberLogin(state, sid, password);
       if (!mounted) return;
       _toast('欢迎回来，${state.user.name}');
       _finish();
@@ -143,6 +130,8 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _verify() async {
     if (_secondAuthLoading) return;
+    final sid = _sid.text.trim();
+    final password = _pwd.text;
     setState(() {
       _secondAuthLoading = true;
       _secondAuthError = null;
@@ -150,26 +139,46 @@ class _LoginPageState extends State<LoginPage> {
     final state = AppScope.of(context);
     try {
       await state.completeSecondAuth(_sms.text.trim());
-      final p = await SharedPreferences.getInstance();
-      if (_remember) {
-        await p.setString('cas.user', _sid.text.trim());
-      } else {
-        await p.remove('cas.user');
-      }
-      if (_keepLogin) {
-        await state.saveCredentials(_sid.text.trim(), _pwd.text);
-      } else {
-        await state.clearCredentials();
-      }
+      if (!mounted) return;
+      await _rememberLogin(state, sid, password);
       if (!mounted) return;
       _toast('欢迎回来，${state.user.name}');
       _finish();
     } catch (e) {
-      if (mounted) setState(() => _secondAuthError = e.toString());
-      _sms.clear();
+      if (mounted) {
+        setState(() => _secondAuthError = e.toString());
+        _sms.clear();
+      }
     } finally {
       if (mounted) setState(() => _secondAuthLoading = false);
     }
+  }
+
+  Future<void> _rememberLogin(AppState state, String sid, String password) async {
+    final p = await SharedPreferences.getInstance();
+    if (_remember) {
+      await p.setString('cas.user', sid);
+    } else {
+      await p.remove('cas.user');
+    }
+    if (_keepLogin) {
+      await state.saveCredentials(sid, password);
+    } else {
+      await state.clearCredentials();
+    }
+  }
+
+  Future<void> _openWebLogin() async {
+    final signedIn = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => const WebViewPage(
+          url: kNeuCasLoginUrl,
+          title: '统一身份认证',
+          loginMode: true,
+        ),
+      ),
+    );
+    if (signedIn == true && mounted) _finish();
   }
 
   void _finish() {
@@ -377,19 +386,7 @@ class _LoginPageState extends State<LoginPage> {
                       ],
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
-                        onPressed: _loading
-                            ? null
-                            : () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => const WebViewPage(
-                                      url: kNeuCasLoginUrl,
-                                      title: '统一身份认证',
-                                      loginMode: true,
-                                    ),
-                                  ),
-                                );
-                              },
+                        onPressed: _loading ? null : _openWebLogin,
                         icon: const Icon(Icons.open_in_browser, size: 18),
                         label: const Text('通过网页版登录（支持短信/扫码）'),
                       ),

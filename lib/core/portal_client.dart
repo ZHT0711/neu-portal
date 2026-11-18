@@ -673,10 +673,18 @@ class PortalClient {
       return cached;
     }
     if (_campusProbe != null) return _campusProbe!;
-    final probe = Future.wait([
-      _quickReachable('http://ecard.neu.edu.cn/'),
-      _quickReachable('https://jwxt.neu.edu.cn/'),
-    ]).then((results) => results.any((value) => value));
+    final firstReachable = Completer<bool>();
+    var remaining = 2;
+    void finishProbe(bool reachable) {
+      remaining--;
+      if (!firstReachable.isCompleted && (reachable || remaining == 0)) {
+        firstReachable.complete(reachable);
+      }
+    }
+
+    unawaited(_quickReachable('http://ecard.neu.edu.cn/').then(finishProbe));
+    unawaited(_quickReachable('https://jwxt.neu.edu.cn/').then(finishProbe));
+    final probe = firstReachable.future;
     _campusProbe = probe;
     final result = await probe;
     if (identical(_campusProbe, probe)) {

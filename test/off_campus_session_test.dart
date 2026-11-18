@@ -167,6 +167,7 @@ void main() {
       expect(state.apps.any((a) => a.appId == '2'), isTrue);
       expect(state.apps.any((a) => a.appId == '901'), isTrue);
 
+      await state.refresh(); // Wait for the initial background catalog load.
       client.appsResponse = [];
       await state.refresh();
       expect(state.apps.any((a) => a.appId == '2'), isTrue);

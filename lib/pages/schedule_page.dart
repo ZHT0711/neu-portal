@@ -29,9 +29,8 @@ class _SchedulePageState extends State<SchedulePage> {
   int _offset = 0; // 相对锚点周的偏移
   bool _fitToScreen = true; // 默认整周一屏，无需横向/纵向滑动
   final _scroll = ScrollController();
-  final Map<String, List<CourseOccurrence>> _remoteCache = {};
-  bool _fetching = false;
-  bool _fetchFailed = false;
+  final _loadingWeeks = <String>{};
+  String? _failedWeek;
   int? _accountGeneration;
 
   DateTime get _weekStart => _anchorWeekStart.add(Duration(days: 7 * _offset));
@@ -51,20 +50,22 @@ class _SchedulePageState extends State<SchedulePage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      TabScroller.attach(1, _scroll);
-      _maybeFetch();
+      if (mounted) TabScroller.attach(1, _scroll);
     });
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final generation = AppScope.of(context).dataGeneration;
+    final state = AppScope.of(context);
+    final generation = state.dataGeneration;
     if (_accountGeneration == generation) return;
     _accountGeneration = generation;
-    _remoteCache.clear();
-    _fetching = false;
-    _fetchFailed = false;
+    if (state.mode == SessionMode.live) {
+      _offset = _currentWeekOffset(DateTime.now());
+    }
+    _loadingWeeks.clear();
+    _failedWeek = null;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _maybeFetch();
     });
@@ -80,20 +81,25 @@ class _SchedulePageState extends State<SchedulePage> {
   Future<void> _maybeFetch() async {
     final s = AppScope.of(context);
     if (s.mode != SessionMode.live) return;
-    final key = Semester.iso(_weekStart);
+    final start = _weekStart;
+    final key = Semester.iso(start);
+    if (s.cachedWeek(start) != null || !_loadingWeeks.add(key)) return;
     final generation = s.dataGeneration;
-    bool current() => mounted && generation == s.dataGeneration;
-    if (_remoteCache.containsKey(key) || _fetching) return;
-    setState(() => _fetching = true);
+    setState(() {
+      if (_failedWeek == key) _failedWeek = null;
+    });
+    var failed = false;
     try {
-      final occs = await s.fetchWeek(_weekStart);
-      if (!current()) return;
-      _remoteCache[key] = occs;
-      _fetchFailed = false;
+      await s.fetchWeek(start);
     } catch (_) {
-      if (current()) _fetchFailed = true;
+      failed = true;
     } finally {
-      if (current()) setState(() => _fetching = false);
+      if (mounted && generation == s.dataGeneration) {
+        _loadingWeeks.remove(key);
+        if (key == Semester.iso(_weekStart)) {
+          setState(() => _failedWeek = failed ? key : null);
+        }
+      }
     }
   }
 
@@ -104,11 +110,14 @@ class _SchedulePageState extends State<SchedulePage> {
     final today = DateTime.now();
     final week = _weekNumber;
     final liveKey = Semester.iso(_weekStart);
+    final liveWeek = s.cachedWeek(_weekStart);
+    final fetching = _loadingWeeks.contains(liveKey);
+    final fetchFailed = _failedWeek == liveKey;
 
     // 每天的聚合日程（周一..周日）
     final days = List<List<CourseOccurrence>>.generate(7, (i) {
       final d = i == 6 ? _weekStart : _weekStart.add(Duration(days: i + 1));
-      return s.agendaForDate(d, liveWeek: _remoteCache[liveKey]);
+      return s.agendaForDate(d, liveWeek: liveWeek);
     });
 
     final weekSwitcher = _WeekSwitcher(
@@ -120,21 +129,21 @@ class _SchedulePageState extends State<SchedulePage> {
       onPrev: () {
         setState(() {
           _offset--;
-          _fetchFailed = false;
+          _failedWeek = null;
         });
         _maybeFetch();
       },
       onNext: () {
         setState(() {
           _offset++;
-          _fetchFailed = false;
+          _failedWeek = null;
         });
         _maybeFetch();
       },
       onBackToCurrent: () {
         setState(() {
           _offset = _currentWeekOffset(DateTime.now());
-          _fetchFailed = false;
+          _failedWeek = null;
         });
         _maybeFetch();
       },
@@ -157,7 +166,7 @@ class _SchedulePageState extends State<SchedulePage> {
                 ),
               ),
             ),
-            if (_fetching)
+            if (fetching)
               const Padding(
                 padding: EdgeInsets.only(right: 16),
                 child: SizedBox(
@@ -166,7 +175,7 @@ class _SchedulePageState extends State<SchedulePage> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               )
-            else if (_fetchFailed)
+            else if (fetchFailed)
               Padding(
                 padding: const EdgeInsets.only(right: 14),
                 child: Tooltip(
@@ -289,7 +298,7 @@ class _SchedulePageState extends State<SchedulePage> {
                     child: const Icon(CupertinoIcons.add, size: 22),
                   ),
                 ),
-                if (_fetching)
+                if (fetching)
                   const Padding(
                     padding: EdgeInsets.only(left: 6),
                     child: SizedBox(
@@ -298,7 +307,7 @@ class _SchedulePageState extends State<SchedulePage> {
                       child: CupertinoActivityIndicator(radius: 7),
                     ),
                   )
-                else if (_fetchFailed)
+                else if (fetchFailed)
                   Padding(
                     padding: const EdgeInsets.only(left: 6),
                     child: Tooltip(
