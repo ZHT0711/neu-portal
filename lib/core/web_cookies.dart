@@ -7,6 +7,7 @@ library;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:webview_flutter/webview_flutter.dart';
+import 'web_session.dart';
 import 'webvpn.dart';
 
 /// 捕获系统 WebView 中指定站点相关的全部 Cookie。
@@ -34,11 +35,22 @@ Future<List<WebViewCookie>> captureWebViewCookies(Uri uri) async {
 
 /// 汇总登录相关 Cookie（含网关代理路径，按 name+domain+path 去重）。
 Future<List<WebViewCookie>> captureWebLoginCookies({Uri? landing}) async {
+  if (kIsWeb) return const [];
+  final native = await readNativeSessionCookies(landing: landing);
+  if (native != null && native.isNotEmpty) {
+    return native.map((cookie) => WebViewCookie(
+      name: cookie['name'] as String,
+      value: cookie['value'] as String,
+      domain: cookie['domain'] as String,
+      path: cookie['path'] as String,
+    )).toList();
+  }
   final reads = await Future.wait({
     Uri.parse('https://pass.neu.edu.cn/tpass/login'),
     Uri.parse('https://personal.neu.edu.cn/portal'),
     Uri.parse('https://webvpn.neu.edu.cn/'),
     Uri.parse('https://portal.neu.edu.cn/tp_up/'),
+    Uri.parse(WebVPN.wrap('https://pass.neu.edu.cn/tpass/login')),
     Uri.parse(WebVPN.wrap('https://personal.neu.edu.cn/portal')),
     if (landing?.host == 'webvpn.neu.edu.cn') landing!,
   }.map(captureWebViewCookies));

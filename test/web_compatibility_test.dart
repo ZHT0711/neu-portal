@@ -137,6 +137,17 @@ void main() {
   testWidgets('gateway login visits the portal and waits for populated profile', (
     tester,
   ) async {
+    const channel = MethodChannel('neu.portal/session_cookies');
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (_) async => [
+      {
+        'name': 'wengine_vpn_ticket',
+        'value': 'browser-ticket==',
+        'domain': 'webvpn.neu.edu.cn',
+        'path': '/',
+      },
+    ]);
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     final previous = WebViewPlatform.instance;
     final fake = _FakeWebPlatform();
     WebViewPlatform.instance = fake;
@@ -199,6 +210,7 @@ void main() {
       expect(state.captured?.hasCoreProfile, isTrue);
       expect(state.captured?.email, 'test@example.edu');
       expect(state.agent, 'Test WebKit');
+      expect(state.gatewayTicket, 'browser-ticket==');
       expect(result, isTrue);
       expect(find.byType(WebViewPage), findsNothing);
       expect(tester.takeException(), isNull);
@@ -632,6 +644,7 @@ class _FakeCookieManager extends PlatformWebViewCookieManager {
 class _CapturingLoginState extends AppState {
   PortalUser? captured;
   String agent = '';
+  String? gatewayTicket;
 
   @override
   Future<bool> completeWebLogin(
@@ -643,6 +656,7 @@ class _CapturingLoginState extends AppState {
       jsonDecode(userInfoJson) as Map<String, dynamic>,
     );
     agent = userAgent;
+    gatewayTicket = cookies.firstWhere((cookie) => cookie.name == 'wengine_vpn_ticket').value;
     return true;
   }
 }

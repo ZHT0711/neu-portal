@@ -87,6 +87,92 @@ void main() {
     },
   );
 
+  test('switching from campus Wi-Fi to cellular reuses the saved gateway ticket', () async {
+    var campus = true;
+    final requests = <http.Request>[];
+    final client = PortalClient(httpClient: MockClient((request) async {
+      requests.add(request);
+      final url = request.url;
+      if (url.host == 'ecard.neu.edu.cn' || url.host == 'jwxt.neu.edu.cn') {
+        return http.Response(campus ? '校园卡' : '', campus ? 200 : 403,
+            headers: {'content-type': 'text/html; charset=utf-8'});
+      }
+      if (url.host == 'pass.neu.edu.cn') fail('valid VPN ticket should be reused');
+      if (!campus && url.host == 'personal.neu.edu.cn') {
+        return http.Response('', 401);
+      }
+      if (url.host == 'webvpn.neu.edu.cn') {
+        expect(request.headers['cookie'], contains('wengine_vpn_ticket=saved'));
+      }
+      return url.path.endsWith('/getApp')
+          ? http.Response('{"d":{"list":[]}}', 200)
+          : http.Response('userInfoDSL = ${jsonEncode(profile.toInfoJson())};', 200,
+              headers: {'content-type': 'text/html; charset=utf-8'});
+    }))..cookies.absorbRaw(Uri.parse(WebVPN.base), 'wengine_vpn_ticket=saved; Path=/; Secure');
+    addTearDown(client.dispose);
+    expect(await client.validateSavedSession(), isNotNull);
+    expect(client.webvpnOn, isFalse);
+
+    campus = false;
+    expect(await client.fetchApps(), isEmpty);
+    expect(client.webvpnOn, isTrue);
+    expect(requests.last.url.host, 'webvpn.neu.edu.cn');
+    expect(client.hasWebVPNTicket, isTrue);
+  });
+
+  test('a rejected gateway ticket can be renewed using the scoped CAS cookie', () async {
+    final casUrl = WebVPN.wrap('https://pass.neu.edu.cn/tpass/login');
+    var exchanges = 0;
+    final client = PortalClient(httpClient: MockClient((request) async {
+      final url = request.url;
+      expect(url.host, 'webvpn.neu.edu.cn');
+      if (url.path == Uri.parse(casUrl).path) {
+        expect(request.headers['cookie'], contains('CASTGC=proxied'));
+        if (url.queryParameters['service'] == WebVPN.casService) {
+          exchanges++;
+          return http.Response('', 302, headers: {'location': WebVPN.casService});
+        }
+      }
+      if (url.path == '/login') {
+        return http.Response('', 200, headers: {
+          'set-cookie': 'wengine_vpn_ticket=renewed; Path=/; Secure',
+        });
+      }
+      if (request.headers['cookie']?.contains('wengine_vpn_ticket=renewed') != true) {
+        return http.Response('', 403, request: request);
+      }
+      return http.Response('userInfoDSL = ${jsonEncode(profile.toInfoJson())};', 200,
+          headers: {'content-type': 'text/html; charset=utf-8'});
+    }))..accessMode = AccessMode.webvpn;
+    addTearDown(client.dispose);
+    client.cookies.absorbRaw(
+      Uri.parse(casUrl),
+      'CASTGC=proxied; Path=${Uri.parse(casUrl).path}; Secure; HttpOnly',
+    );
+    client.cookies.absorbRaw(Uri.parse(WebVPN.base), 'wengine_vpn_ticket=stale; Path=/; Secure');
+    expect((await client.validateSavedSession())?.sid, profile.sid);
+    expect(exchanges, 1);
+    expect(client.hasCasSession, isFalse);
+    expect(client.cookies.headerFor(Uri.parse(WebVPN.base)), contains('wengine_vpn_ticket=renewed'));
+  });
+
+  test('a rejected gateway redirect on campus preserves the other route ticket', () async {
+    final gateway = Uri.parse(WebVPN.base);
+    final client = PortalClient(httpClient: MockClient((request) async {
+      if (request.url.host == gateway.host) {
+        return http.Response('<input type="password">', 403, request: request,
+            headers: {'set-cookie': 'wengine_vpn_ticket=; Max-Age=0; Path=/'});
+      }
+      return http.Response('', 302, headers: {'location': '$gateway'});
+    }))..accessMode = AccessMode.direct;
+    addTearDown(client.dispose);
+    client.cookies.absorbRaw(gateway, 'wengine_vpn_ticket=saved; Path=/; Secure');
+
+    await expectLater(client.validateSavedSession(), throwsA(isA<PortalException>()
+        .having((error) => error.sessionExpired, 'sessionExpired', true)));
+    expect(client.cookies.headerFor(gateway), contains('wengine_vpn_ticket=saved'));
+  });
+
   test(
     'DSL config without a user is rejected; partial profiles retain populated fields',
     () {

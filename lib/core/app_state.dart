@@ -318,33 +318,23 @@ class AppState extends ChangeNotifier {
   /// Serialized with deletion so an in-flight background save cannot undo logout.
   Future<void> persistWebSession() {
     final epoch = _sessionEpoch;
-    if (kIsWeb || !_usesWebSession || mode != SessionMode.live) {
+    if (kIsWeb || !_persistedLive || mode != SessionMode.live) {
       return Future.value();
     }
     if (_webSessionSave case final pending?) return pending;
     final save = _sessionWrites.then((_) async {
-      if (epoch != _sessionEpoch || !_usesWebSession || _disposed) return;
+      if (epoch != _sessionEpoch || !_persistedLive || _disposed) return;
       final oldError = sessionSaveError;
       try {
         final c = _client;
         if (c == null) return;
-        final records = {
-          for (final r in c.sessionCookies()) sessionCookieKey(r): r,
-        };
-        final native = await readNativeSessionCookies();
-        if (epoch != _sessionEpoch || !_usesWebSession) return;
-        for (final r in native ?? <Map<String, dynamic>>[]) {
-          final key = sessionCookieKey(r);
-          final previous = records[key];
-          records[key] =
-              r['metadataKnown'] == false && previous?['metadataKnown'] != false && previous?['value'] == r['value']
-              ? previous!
-              : r;
-        }
-        c.restoreSessionCookies(records.values.toList());
-        if (!c.isLoggedIn && !c.hasCasSession && !c.hasWebVPNTicket) return;
+        final native = _usesWebSession ? await readNativeSessionCookies() : null;
+        if (epoch != _sessionEpoch || !_persistedLive || c != _client) return;
+        if (native != null) c.restoreSessionCookies(native);
+        if (!c.hasLoginSession) return;
         final snapshot = jsonEncode({
           'version': 1,
+          'web': _usesWebSession,
           'user': user.toInfoJson(),
           'userAgent': c.userAgent ?? '',
           'cookies': c.sessionCookies(),
@@ -505,6 +495,24 @@ class AppState extends ChangeNotifier {
 
   void invalidateAccessRoute() => _client?.invalidateAccessRoute();
 
+  Future<void> resumeSession() async {
+    invalidateAccessRoute();
+    final c = _client;
+    if (c == null || mode != SessionMode.live || loading) return;
+    final attempt = _authAttempt;
+    final wasOnGateway = c.webvpnOn;
+    try {
+      await prepareBrowserAccess();
+      if (!_ownsAuth(attempt) || c != _client) return;
+      if (wasOnGateway != c.webvpnOn || !liveAvailable) {
+        await _refreshLive(refreshUser: true);
+      }
+      if (_ownsAuth(attempt)) await persistWebSession();
+    } catch (_) {
+      // 前台恢复失败时仍保留会话，等下一次请求或手动刷新。
+    }
+  }
+
   Future<void> setPlatformStyle(PlatformStylePreference style) async {
     platformStyle = style;
     setPlatformPreference(style);
@@ -547,18 +555,18 @@ class AppState extends ChangeNotifier {
     if (!_ownsAuth(attempt)) throw PortalException('登录操作已结束，请重试');
   }
 
-  void _adoptLogin(PortalUser profile, {required bool web}) {
+  void _adoptLogin(PortalUser profile, {required bool web, bool keepSession = true}) {
     user = profile;
     mode = SessionMode.live;
     _usesWebSession = web;
-    _persistedLive = true;
+    _persistedLive = keepSession;
     needsSecondAuth = false;
     secondAuthCaptcha = null;
     lastError = null;
     _resetAccountData();
   }
 
-  Future<void> login(String username, String password) async {
+  Future<void> login(String username, String password, {bool keepSession = false}) async {
     final attempt = ++_authAttempt;
     _resetAccountData();
     _usesWebSession = false;
@@ -573,7 +581,7 @@ class AppState extends ChangeNotifier {
       _client = c;
       final profile = await c.login(username, password);
       _checkAuth(attempt);
-      await _finishPasswordLogin(profile, attempt);
+      await _finishPasswordLogin(profile, attempt, keepSession: keepSession);
     } on SecondAuthRequired {
       if (_ownsAuth(attempt)) {
         needsSecondAuth = true;
@@ -591,14 +599,20 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> _finishPasswordLogin(PortalUser profile, int attempt) async {
+  Future<void> _finishPasswordLogin(
+    PortalUser profile,
+    int attempt, {
+    required bool keepSession,
+  }) async {
     await _clearWebSession();
     _checkAuth(attempt);
     final preferences = await SharedPreferences.getInstance();
     _checkAuth(attempt);
-    await preferences.setInt(_kSession, 1);
+    await preferences.setInt(_kSession, keepSession ? 1 : 0);
     _checkAuth(attempt);
-    _adoptLogin(profile, web: false);
+    _adoptLogin(profile, web: false, keepSession: keepSession);
+    await persistWebSession();
+    _checkAuth(attempt);
     unawaited(_refreshLive());
   }
 
@@ -623,7 +637,7 @@ class AppState extends ChangeNotifier {
   }
 
   /// 提交短信验证码完成二次认证并进入实时模式。
-  Future<void> completeSecondAuth(String smsCode) async {
+  Future<void> completeSecondAuth(String smsCode, {bool keepSession = false}) async {
     final c = _client;
     if (c == null) throw PortalException('当前没有待验证的登录，请先登录');
     final attempt = ++_authAttempt;
@@ -632,7 +646,7 @@ class AppState extends ChangeNotifier {
     try {
       final profile = await c.submitSecondAuth(smsCode);
       _checkAuth(attempt);
-      await _finishPasswordLogin(profile, attempt);
+      await _finishPasswordLogin(profile, attempt, keepSession: keepSession);
     } catch (e) {
       if (_ownsAuth(attempt)) lastError = e.toString();
       rethrow;
@@ -660,8 +674,7 @@ class AppState extends ChangeNotifier {
     loading = true;
     notifyListeners();
     try {
-      // 会话有效性：CASTGC / 门户 SESS_ID / 网关票据 任一在手即视为已登录
-      if (!c.isLoggedIn && !c.hasCasSession && !c.hasWebVPNTicket) {
+      if (!c.hasLoginSession) {
         lastError = '未能取得登录会话，请在页面中完成登录';
         return false;
       }
@@ -775,7 +788,7 @@ class AppState extends ChangeNotifier {
     }
     final loginAttempt = _authAttempt + 1;
     try {
-      await login(credentials.$1, credentials.$2);
+      await login(credentials.$1, credentials.$2, keepSession: true);
     } catch (_) {
       if (!_ownsAuth(loginAttempt)) return;
       lastError = '自动续登失败（需要校园网或 VPN），当前为离线数据';
@@ -783,7 +796,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// 网页登录后的重启恢复：保留离线会话，只有确认过期才清理。
+  /// 优先恢复已保存的会话。当前线路需要认证时仍保留其它线路的会话。
   Future<bool> restoreWebSession() async {
     final attempt = _authAttempt;
     final c = _client ??= PortalClient()..accessMode = accessMode;
@@ -792,9 +805,11 @@ class AppState extends ChangeNotifier {
       final raw = kIsWeb ? null : await _secure.read(key: _kWebSession);
       _checkAuth(attempt);
       var profile = _placeholderProfile(p);
+      var web = true;
       if (raw != null) {
         final saved = jsonDecode(raw) as Map;
         if (saved['version'] != 1) return false;
+        web = saved['web'] != false;
         final cookies = (saved['cookies'] as List)
             .whereType<Map>()
             .map((r) => Map<String, dynamic>.from(r))
@@ -815,22 +830,16 @@ class AppState extends ChangeNotifier {
             .toList());
       }
       c.adoptGatewayTicket();
-      if (!c.isLoggedIn && !c.hasCasSession && !c.hasWebVPNTicket) {
+      if (!c.hasLoginSession) {
         if (raw != null) await _clearWebSession();
         return false;
       }
       PortalUser? fresh;
+      var authenticationRequired = false;
       try {
         fresh = await c.validateSavedSession();
       } on PortalException catch (e) {
-        if (e.sessionExpired) {
-          _checkAuth(attempt);
-          c.clearSessionCookies();
-          if (raw != null) await _clearWebSession();
-          _checkAuth(attempt);
-          await clearWebViewCookies();
-          return false;
-        }
+        authenticationRequired = e.sessionExpired;
       } catch (_) {
         // A transient connection failure does not invalidate the browser session.
       }
@@ -842,15 +851,17 @@ class AppState extends ChangeNotifier {
       }
       _checkAuth(attempt);
       _savedWebSnapshot = raw;
-      _adoptLogin(fresh == null ? profile : profile.merge(fresh), web: true);
-      if (fresh == null && raw != null) {
-        lastError = '暂时无法连接门户，已恢复上次登录会话';
+      _adoptLogin(fresh == null ? profile : profile.merge(fresh), web: web);
+      if (fresh == null) {
+        lastError = authenticationRequired
+            ? '当前线路需要重新认证，已保留上次登录会话'
+            : '暂时无法连接门户，已恢复上次登录会话';
       } else {
-        if (raw == null) unawaited(persistWebSession());
         unawaited(_refreshLive().then((_) async {
           if (_ownsAuth(attempt)) await persistWebSession();
         }));
       }
+      unawaited(persistWebSession());
       notifyListeners();
       return true;
     } catch (_) {
@@ -894,6 +905,7 @@ class AppState extends ChangeNotifier {
 
   void enterDemo() {
     _authAttempt++;
+    _resetWebSave();
     loading = false;
     _resetAccountData();
     _usesWebSession = false;
@@ -944,6 +956,9 @@ class AppState extends ChangeNotifier {
       // Individual portal reads can still succeed on the current route.
     }
     if (!current()) return;
+    final baseline = {
+      for (final cookie in c.sessionCookies()) sessionCookieKey(cookie): cookie['value'],
+    };
     if (refreshUser) {
       try {
         final profile = await c.fetchUserInfo();
@@ -993,6 +1008,15 @@ class AppState extends ChangeNotifier {
       guarded(c.fetchHotSearch, (value) => hotSearches = value),
     ]);
     if (!current()) return;
+    final renewed = c.sessionCookies().where((cookie) =>
+        cookie['metadataKnown'] == true &&
+        baseline[sessionCookieKey(cookie)] != cookie['value']).toList();
+    if (renewed.isNotEmpty) {
+      try {
+        await restoreNativeSessionCookies(renewed);
+      } catch (_) {}
+      if (!current()) return;
+    }
     liveAvailable = total > 0 && ok >= 2;
     lastError = liveAvailable ? null : '实时数据暂不可用，请检查线路后重试';
     notifyListeners();

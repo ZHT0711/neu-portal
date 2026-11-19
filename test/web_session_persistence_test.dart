@@ -96,17 +96,40 @@ void main() {
     });
   }
 
-  test('confirmed CAS expiry removes snapshot and does not restore native cookies', () async {
+  test('a route requiring CAS login leaves the saved gateway session intact', () async {
     FlutterSecureStorage.setMockInitialValues({_key: _snapshot(_cookies())});
     final state = AppState.withClient(_Client()
       ..failure = PortalException('login required', sessionExpired: true));
     addTearDown(state.dispose);
     await state.loadSettings();
     await state.restoreSession();
-    expect(state.mode, SessionMode.demo);
-    expect(await _secure.read(key: _key), isNull);
-    expect(restored, isNull);
+    expect(state.mode, SessionMode.live);
+    expect(state.lastError, contains('当前线路需要重新认证'));
+    expect(await _secure.read(key: _key), isNotNull);
+    expect(restored, hasLength(3));
   });
+
+  for (final keepSession in [true, false]) {
+    test('password authentication honors keepSession=$keepSession', () async {
+      final state = AppState.withClient(_Client());
+      addTearDown(state.dispose);
+      await state.completeSecondAuth('example', keepSession: keepSession);
+      final raw = await _secure.read(key: _key);
+      if (!keepSession) {
+        expect(raw, isNull);
+        return;
+      }
+      expect(jsonDecode(raw!)['web'], isFalse);
+      final restarted = AppState.withClient(_Client());
+      addTearDown(restarted.dispose);
+      await restarted.loadSettings();
+      await restarted.restoreSession();
+      expect(restarted.mode, SessionMode.live);
+      expect(restarted.usesWebSession, isFalse);
+      expect(restarted.user.sid, _profile.sid);
+      expect(restored, hasLength(3));
+    });
+  }
 
   test('web login completes while a slow portal sync is still pending', () async {
     final client = _Client()..blockedApps = Completer<List<PortalApp>>();
@@ -247,6 +270,12 @@ void main() {
 }
 
 class _Client extends PortalClient {
+  @override
+  Future<PortalUser> submitSecondAuth(String smsCode) async {
+    restoreSessionCookies(_cookies());
+    return _profile;
+  }
+
   @override
   Future<bool> isCampusNet() async => false;
   Object? failure;

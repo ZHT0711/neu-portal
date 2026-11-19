@@ -12,6 +12,7 @@ import 'package:http_parser/http_parser.dart' show parseHttpDate;
 import 'cas_crypto.dart';
 import 'models.dart';
 import 'grade_report.dart';
+import 'web_session.dart' show sessionCookieKey;
 import 'webvpn.dart';
 
 enum AccessMode { auto, direct, webvpn }
@@ -212,9 +213,16 @@ class CookieJar {
             ? DateTime.fromMillisecondsSinceEpoch(expiry.toInt())
             : null,
       );
-      if (!c.isExpired) {
-        _store.putIfAbsent(domain, () => {})['$path\u0000$name'] = c;
+      if (c.isExpired) continue;
+      final entries = _store.putIfAbsent(domain, () => {});
+      final key = '$path\u0000$name';
+      final previous = entries[key];
+      if (!c.metadataKnown &&
+          previous?.metadataKnown == true &&
+          previous?.value == c.value) {
+        continue;
       }
+      entries[key] = c;
     }
   }
 
@@ -282,24 +290,6 @@ class CookieJar {
     return false;
   }
 
-  /// 丢弃现有 WebVPN 网关票据（票据可能与浏览器 UA 绑定被拒，重换后再试）。
-  void removeWebVPNTickets() {
-    for (final domain in _store.keys.toList()) {
-      if (!domain.contains('webvpn.neu.edu.cn')) continue;
-      final cookies = _store[domain];
-      if (cookies == null) continue;
-      for (final name in cookies.keys.toList()) {
-        final n = cookies[name]!.name.toLowerCase();
-        if (n.contains('wengine') ||
-            n.contains('vpn_ticket') ||
-            n.contains('webvpn')) {
-          cookies.remove(name);
-        }
-      }
-      if (cookies.isEmpty) _store.remove(domain);
-    }
-  }
-
   Map<String, Map<String, String>> cookieSnapshot() {
     final out = <String, Map<String, String>>{};
     for (final entry in _store.entries) {
@@ -359,6 +349,17 @@ class PortalClient {
     Uri.parse('https://pass.neu.edu.cn/tpass/login'),
     'CASTGC',
   );
+
+  static final _gatewayCas = Uri.parse(WebVPN.wrap('$passBase/tpass/login'));
+  static final _gatewayPortal = Uri.parse(WebVPN.wrap(portalBase));
+  bool get _hasGatewayCasSession => _cookies.hasCookie(_gatewayCas, 'CASTGC');
+
+  bool get hasLoginSession =>
+      isLoggedIn ||
+      hasCasSession ||
+      hasWebVPNTicket ||
+      _hasGatewayCasSession ||
+      _cookies.hasCookie(_gatewayPortal, 'SESS_ID');
 
   @visibleForTesting
   CookieJar get cookies => _cookies;
@@ -599,22 +600,74 @@ class PortalClient {
     return null;
   }
 
-  /// 从门户首页 HTML 中解析 window.userInfoDSL。
-  /// 恢复已有会话时只验证一次；网络/WAF 故障不销毁仍可用于浏览器的票据。
-  Future<PortalUser?> validateSavedSession() async {
-    await prepareAccess();
+  /// 当前线路要求登录时，重新选路并尝试用现有 CAS 会话续接。
+  Future<PortalUser?>? _portalValidation;
+
+  Future<PortalUser?> validateSavedSession() =>
+      _portalValidation ??= _validatePortalSession().whenComplete(() {
+        _portalValidation = null;
+      });
+
+  Future<PortalUser?> _validatePortalSession() async {
+    final retained = sessionCookies();
+    try {
+      await prepareAccess();
+      try {
+        return await _readPortalUser();
+      } on PortalException catch (error) {
+        if (!error.sessionExpired) rethrow;
+      }
+
+      if (accessMode == AccessMode.auto) {
+        final wasOnGateway = webvpnOn;
+        invalidateAccessRoute();
+        await prepareAccess();
+        if (wasOnGateway != webvpnOn) {
+          try {
+            return await _readPortalUser();
+          } on PortalException catch (error) {
+            if (!error.sessionExpired) rethrow;
+          }
+        }
+      }
+
+      if (hasCasSession || (webvpnOn && _hasGatewayCasSession)) {
+        if (webvpnOn) await _exchangeWebVPNTicket();
+        final service = Uri.parse(kNeuCasLoginUrl).queryParameters['service']!;
+        final response = await _get(_casServiceUrl(service));
+        final html = await _respText(response);
+        final user = _extractUserFromHtml(html);
+        if (user != null && !_requiresPortalAuthentication(response, html)) {
+          return user;
+        }
+        return await _readPortalUser();
+      }
+      throw PortalException('当前线路需要重新认证', sessionExpired: true);
+    } finally {
+      // 某条线路的拒绝响应可能删除 Cookie，保留其它线路仍可使用的会话。
+      final present = sessionCookies().map(sessionCookieKey).toSet();
+      restoreSessionCookies(
+        retained
+            .where((cookie) => !present.contains(sessionCookieKey(cookie)))
+            .toList(),
+      );
+    }
+  }
+
+  Future<http.StreamedResponse> _get(Uri uri, {bool xhr = false}) => _send(
+    http.Request('GET', uri)..headers.addAll(_headers(uri, xhr: xhr)),
+  );
+
+  Future<PortalUser?> _readPortalUser() async {
     final uri = Uri.parse(maybeWrap(portalBase));
-    final resp = await _send(
-      http.Request('GET', uri)..headers.addAll(_headers(uri)),
-    );
+    final resp = await _get(uri);
     final html = await _respText(resp);
-    final landed = resp.request?.url;
-    if ((landed?.host == 'pass.neu.edu.cn') ||
-        RegExp(
-          r'<input\b[^>]*type\s*=\s*["\x27]?password',
-          caseSensitive: false,
-        ).hasMatch(html)) {
-      throw PortalException('登录会话已过期，请重新登录', sessionExpired: true);
+    if (_requiresPortalAuthentication(resp, html)) {
+      throw PortalException('当前线路需要重新认证', sessionExpired: true);
+    }
+    if (_gatewayRejected(resp, html) &&
+        (hasCasSession || _hasGatewayCasSession)) {
+      throw PortalException('当前线路需要刷新网关票据', sessionExpired: true);
     }
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw PortalException('门户暂时不可用（${resp.statusCode}）');
@@ -623,42 +676,31 @@ class PortalClient {
   }
 
   Future<PortalUser> fetchUserInfo() async {
-    await prepareAccess();
-    // 网关票据失效时重换，保留校内和手动直连的线路选择。
-    for (var attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0 && !webvpnOn) break;
-      if (attempt == 2) {
-        if (!hasCasSession) break;
-        _cookies.removeWebVPNTickets();
-      }
-      if (attempt >= 1 && !await ensureWebVPN()) {
-        throw PortalException('统一身份认证会话已失效，请重新登录');
-      }
-      final target = maybeWrap(portalBase);
-      final resp = await _send(
-        http.Request('GET', Uri.parse(target))
-          ..headers.addAll(_headers(Uri.parse(target))),
-      );
-      final html = await _respText(resp);
-      if (!_isPortalSessionFailure(resp, html)) {
-        final user = _extractUserFromHtml(html);
-        if (user != null) return user;
-      }
-    }
-    throw PortalException('统一身份认证会话已失效，请重新登录');
+    final user = await validateSavedSession();
+    if (user != null) return user;
+    throw PortalException('门户暂时无法返回个人资料');
   }
 
-  /// 直连门户是否失败：落在 CAS 登录页 / 网关拦截页 / 网关域。
-  static bool _isPortalSessionFailure(http.StreamedResponse resp, String html) {
-    final url = resp.request?.url;
-    final onPass = url != null &&
-        (url.host.contains('pass.neu.edu.cn') ||
-            url.path.contains('/tpass/login'));
-    final onWebVPN = url != null && url.host.contains('webvpn.neu.edu.cn');
-    final gate = onWebVPN &&
-        (resp.statusCode == 403 || html.contains('仅用于我校师生在校外登录'));
-    return onPass || gate || html.contains('当前设备需进行身份验证');
+  static final _loginForm = RegExp(
+    r'<input\b[^>]*type\s*=\s*["\x27]?password',
+    caseSensitive: false,
+  );
+
+  static bool _requiresPortalAuthentication(
+    http.StreamedResponse response,
+    String html,
+  ) {
+    final url = response.request?.url;
+    final origin = url == null ? null : Uri.tryParse(WebVPN.unwrap('$url'));
+    return response.statusCode == 401 ||
+        origin?.host == 'pass.neu.edu.cn' ||
+        html.contains('当前设备需进行身份验证') ||
+        _loginForm.hasMatch(html);
   }
+
+  static bool _gatewayRejected(http.StreamedResponse response, String html) =>
+      response.request?.url.host == 'webvpn.neu.edu.cn' &&
+      (response.statusCode == 403 || html.contains('仅用于我校师生在校外登录'));
 
   // ── 校园网 / WebVPN ────────────────────────────────────
 
@@ -725,7 +767,26 @@ class PortalClient {
     }
   }
 
-  /// 用公网一号通的 CASTGC 给 WebVPN 网关换票（必须走公网 pass，不能先开网关首页）。
+  Uri _casServiceUrl(String service) {
+    final direct = Uri.parse('$passBase/tpass/login').replace(
+      queryParameters: {'service': service},
+    );
+    return Uri.parse(maybeWrap(direct.toString()));
+  }
+
+  Future<bool> _exchangeWebVPNTicket() async {
+    final epoch = _accessEpoch;
+    final response = await _get(_casServiceUrl(WebVPN.casService));
+    final html = await _respText(response);
+    return epoch == _accessEpoch &&
+        _cookies.hasWebVPNTicket() &&
+        response.statusCode >= 200 &&
+        response.statusCode < 300 &&
+        !_requiresPortalAuthentication(response, html) &&
+        !_gatewayRejected(response, html);
+  }
+
+  /// 优先复用网关票据，必要时用当前线路的 CAS 会话换票。
   Future<bool> ensureWebVPN() async {
     if (accessMode == AccessMode.direct ||
         (accessMode == AccessMode.auto && _campusProbeResult == true)) {
@@ -735,14 +796,9 @@ class PortalClient {
       webvpnOn = true;
       return true;
     }
-    final loginUrl =
-        'https://pass.neu.edu.cn/tpass/login?service=${Uri.encodeComponent(WebVPN.casService)}';
     for (var attempt = 0; attempt < 2; attempt++) {
       try {
-        final resp = await _send(http.Request('GET', Uri.parse(loginUrl))
-          ..headers.addAll(_headers(Uri.parse(loginUrl))));
-        await resp.stream.drain<void>();
-        if (_cookies.hasWebVPNTicket()) {
+        if (await _exchangeWebVPNTicket()) {
           webvpnOn =
               accessMode != AccessMode.direct &&
               !(accessMode == AccessMode.auto && _campusProbeResult == true);
@@ -772,13 +828,20 @@ class PortalClient {
       AccessMode.direct => false,
       AccessMode.webvpn => true,
     };
-    if (webvpnOn && (hasCasSession || hasWebVPNTicket)) {
+    if (webvpnOn && (hasCasSession || hasWebVPNTicket || _hasGatewayCasSession)) {
       await ensureWebVPN();
     }
+    if (epoch != _accessEpoch) await _prepareAccess();
   }
 
   String maybeWrap(String url) {
     final direct = WebVPN.unwrap(url);
+    if (webvpnOn &&
+        !hasCasSession &&
+        _hasGatewayCasSession &&
+        Uri.tryParse(direct)?.host == 'pass.neu.edu.cn') {
+      return WebVPN.wrap(direct);
+    }
     return webvpnOn && WebVPN.supports(direct) ? WebVPN.wrap(direct) : direct;
   }
 
@@ -909,19 +972,25 @@ class PortalClient {
   Future<Map<String, dynamic>> _api(String path,
       {Map<String, Object?>? query}) async {
     await prepareAccess();
-    // 校外（网关模式）时门户 JSON 接口也必须经网关
-    final uri = Uri.parse(maybeWrap('$portalBase/$path'))
-        .replace(queryParameters: query);
-    final resp = await _send(http.Request('GET', uri)
-      ..headers.addAll(_headers(uri, xhr: true)));
-    final finalUrl = resp.request?.url ?? uri;
-    if (finalUrl.host.contains('pass.neu.edu.cn') ||
-        finalUrl.path.contains('/tpass/login')) {
-      throw PortalException('统一身份认证会话已失效，请重新登录');
+    final canRecover = hasLoginSession;
+    Future<http.StreamedResponse> read() => _get(
+      Uri.parse(maybeWrap('$portalBase/$path')).replace(queryParameters: query),
+      xhr: true,
+    );
+    var resp = await read();
+    var body = await _respText(resp);
+    bool rejected() => _requiresPortalAuthentication(resp, body) ||
+        _gatewayRejected(resp, body);
+    if (canRecover && rejected()) {
+      await validateSavedSession();
+      resp = await read();
+      body = await _respText(resp);
     }
-    final text = await _respText(resp);
-    if (text.isEmpty) throw PortalException('接口返回为空');
-    final j = jsonDecode(text);
+    if (rejected()) {
+      throw PortalException('当前线路需要重新认证', sessionExpired: true);
+    }
+    if (body.isEmpty) throw PortalException('接口返回为空');
+    final j = jsonDecode(body);
     if (j is! Map<String, dynamic>) throw PortalException('接口返回格式异常');
     final code = j['e'];
     if (code is int && code != 0) {

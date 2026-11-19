@@ -70,7 +70,7 @@ class _LoginPageState extends State<LoginPage> {
     });
     final state = AppScope.of(context);
     try {
-      await state.login(sid, password);
+      await state.login(sid, password, keepSession: _keepLogin);
       if (!mounted) return;
       await _rememberLogin(state, sid, password);
       if (!mounted) return;
@@ -138,7 +138,7 @@ class _LoginPageState extends State<LoginPage> {
     });
     final state = AppScope.of(context);
     try {
-      await state.completeSecondAuth(_sms.text.trim());
+      await state.completeSecondAuth(_sms.text.trim(), keepSession: _keepLogin);
       if (!mounted) return;
       await _rememberLogin(state, sid, password);
       if (!mounted) return;
