@@ -299,6 +299,30 @@ class _HomePageState extends State<HomePage> {
                         index: 6,
                         child: _NewsList(news: s.news.take(6).toList())),
                   ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+                    child: Center(
+                      child: TextButton(
+                        onPressed: () => AppLinks.open(
+                          context,
+                          'https://github.com/ZHT0711/neu-portal',
+                          title: '项目地址',
+                        ),
+                        child: const Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('项目地址 · GitHub'),
+                            SizedBox(height: 4),
+                            Text(
+                              'github.com/ZHT0711/neu-portal',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                   SizedBox(height: portalBottomInset(context)),
                 ],
               ),
@@ -401,6 +425,8 @@ class _Header extends StatelessWidget {
                     child: Image.network(
                       avatarUrl,
                       fit: BoxFit.cover,
+                      cacheWidth: 120,
+                      cacheHeight: 120,
                       errorBuilder: (_, _, _) => Container(
                         color: foreground.withValues(alpha: 0.18),
                         alignment: Alignment.center,
@@ -579,7 +605,7 @@ class _SearchCard extends StatelessWidget {
     if (isApple) {
       return IosGlassSurface(
         radius: 22,
-        blurSigma: 18,
+        blurSigma: 0,
         specular: true,
         child: Material(
           color: Colors.transparent,
@@ -678,6 +704,7 @@ class _NextCourseBanner extends StatelessWidget {
     if (isApple) {
       return IosGlassSurface(
         radius: Ds.rMd,
+        blurSigma: 0,
         child: content,
       );
     }
@@ -1249,6 +1276,7 @@ class _NewsList extends StatelessWidget {
                           child: Image.network(
                             n.picUrl,
                             fit: BoxFit.cover,
+                            cacheWidth: 192,
                             errorBuilder: (_, _, _) => _dateBadge(n, scheme),
                           ),
                         ),

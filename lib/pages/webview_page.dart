@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../core/app_state.dart';
@@ -49,6 +50,7 @@ class _WebViewPageState extends State<WebViewPage> {
   late final BrowserBridge _bridge;
   AppState? _state;
   int _accountGeneration = 0;
+  SessionMode? _accountMode;
   int _documentGeneration = 0;
   bool _syncing = false;
   String _syncProgress = '';
@@ -75,8 +77,13 @@ class _WebViewPageState extends State<WebViewPage> {
   }
 
   void _accountChanged() {
-    if (_state?.dataGeneration == _accountGeneration) return;
+    if (_state?.dataGeneration == _accountGeneration &&
+        _state?.mode == _accountMode) {
+      return;
+    }
     _accountGeneration = _state!.dataGeneration;
+    _accountMode = _state!.mode;
+    _cancelPermissionPrompt();
     _cancelSync();
     unawaited(_controller.runJavaScript('window.stop();'));
     if (mounted) setState(() {});
@@ -99,6 +106,10 @@ class _WebViewPageState extends State<WebViewPage> {
   bool _portalLandingTried = false;
   String _capturedUserInfoJson = '';
   bool _documentHasLoginForm = false;
+  static const _permissionChannel = MethodChannel('neu.portal/web_permissions');
+  bool _permissionPending = false;
+  int _permissionGeneration = 0;
+  DialogRoute<bool>? _permissionDialog;
 
   bool get _onPersonalPortal =>
       (_currentUri.host == 'personal.neu.edu.cn' &&
@@ -136,7 +147,10 @@ class _WebViewPageState extends State<WebViewPage> {
             javaScriptCanOpenWindowsAutomatically: true,
           )
         : const PlatformWebViewControllerCreationParams();
-    _controller = WebViewController.fromPlatformCreationParams(params);
+    _controller = WebViewController.fromPlatformCreationParams(
+      params,
+      onPermissionRequest: _onPermissionRequest,
+    );
     _bridge = BrowserBridge(_controller);
     _configureAndLoad();
   }
@@ -149,6 +163,7 @@ class _WebViewPageState extends State<WebViewPage> {
       _state?.removeListener(_accountChanged);
       _state = state;
       _accountGeneration = state.dataGeneration;
+      _accountMode = state.mode;
       state.addListener(_accountChanged);
     }
     final route = ModalRoute.of(context);
@@ -178,6 +193,7 @@ class _WebViewPageState extends State<WebViewPage> {
 
   @override
   void dispose() {
+    _cancelPermissionPrompt();
     _state?.removeListener(_accountChanged);
     _cancelSync();
     _routeAnimation?.removeStatusListener(_onRouteAnimationStatus);
@@ -201,11 +217,26 @@ class _WebViewPageState extends State<WebViewPage> {
       if (platform is WebKitWebViewController) {
         await platform.setAllowsBackForwardNavigationGestures(true);
       }
+      if (platform is AndroidWebViewController) {
+        await platform.setGeolocationEnabled(true);
+        await platform.setGeolocationPermissionsPromptCallbacks(
+          onShowPrompt: (request) async => GeolocationPermissionsResponse(
+            allow: await _requestWebPermissions(
+              const ['location'],
+              const ['位置信息（用于网页定位、签到等功能）'],
+              origin: request.origin,
+            ),
+            retain: false,
+          ),
+          onHidePrompt: _cancelPermissionPrompt,
+        );
+      }
       await _controller.setNavigationDelegate(
         NavigationDelegate(
           onNavigationRequest: _onNavigation,
           onUrlChange: (change) => _rememberUrl(change.url),
           onPageStarted: (url) {
+            _cancelPermissionPrompt();
             _cancelSync();
             _rememberUrl(url);
             _diag('跳转 $url');
@@ -253,6 +284,106 @@ class _WebViewPageState extends State<WebViewPage> {
   void _rememberUrl(String? url) {
     final uri = Uri.tryParse(url ?? '');
     if (PortalWebPolicy.isWebUrl(uri)) mountedSet(() => _currentUri = uri!);
+  }
+
+  void _cancelPermissionPrompt() {
+    _permissionGeneration++;
+    final dialog = _permissionDialog;
+    _permissionDialog = null;
+    if (dialog != null && dialog.isActive) {
+      dialog.navigator?.removeRoute(dialog, false);
+    }
+  }
+
+  Future<void> _onPermissionRequest(WebViewPermissionRequest request) async {
+    final resources = <String>[];
+    final descriptions = <String>[];
+    for (final type in request.types) {
+      if (type == WebViewPermissionResourceType.camera) {
+        resources.add('camera');
+        descriptions.add('摄像头（用于网页拍照、扫码或视频）');
+      } else if (type == WebViewPermissionResourceType.microphone) {
+        resources.add('microphone');
+        descriptions.add('麦克风（用于网页录音或音视频通话）');
+      } else {
+        await request.deny();
+        return;
+      }
+    }
+    final allowed = await _requestWebPermissions(resources, descriptions);
+    if (allowed) {
+      await request.grant();
+    } else {
+      await request.deny();
+    }
+  }
+
+  Future<bool> _requestWebPermissions(
+    List<String> resources,
+    List<String> descriptions, {
+    String? origin,
+  }) async {
+    if (!mounted ||
+        resources.isEmpty ||
+        _permissionPending ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return false;
+    }
+    _permissionPending = true;
+    final generation = _permissionGeneration;
+    try {
+      final address = origin ?? _currentUri.origin;
+      final dialog = DialogRoute<bool>(
+        context: context,
+        builder: (context) => AlertDialog.adaptive(
+          scrollable: true,
+          title: const Text('网页权限申请'),
+          content: Text(
+            '${origin == null ? '当前页面' : '申请网站'}\n$address\n\n'
+            '网页请求使用以下权限\n${descriptions.join('\n')}\n\n'
+            '允许后可能还需要在系统弹窗中授权。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('拒绝'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('允许本次'),
+            ),
+          ],
+        ),
+      );
+      _permissionDialog = dialog;
+      final allowed =
+          await Navigator.of(context, rootNavigator: true).push(dialog);
+      _permissionDialog = null;
+      if (allowed != true || !mounted || generation != _permissionGeneration) {
+        return false;
+      }
+      if (_controller.platform is AndroidWebViewController) {
+        final granted = await _permissionChannel.invokeMethod<bool>(
+              'request',
+              resources,
+            ) ??
+            false;
+        if (!mounted || generation != _permissionGeneration) return false;
+        if (!granted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('系统权限未授权，可在系统设置的应用权限中开启后重试。'),
+          ));
+        }
+        return granted;
+      }
+      return true;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    } finally {
+      _permissionPending = false;
+    }
   }
 
   Future<NavigationDecision> _onNavigation(NavigationRequest request) async {

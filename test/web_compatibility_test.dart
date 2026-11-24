@@ -20,6 +20,67 @@ import 'package:neu_portal/core/browser_bridge.dart';
 import 'package:webview_flutter/webview_flutter.dart' as web;
 
 void main() {
+  for (final action in ['allow', 'deny', 'dismiss', 'navigate', 'account', 'dispose']) {
+    testWidgets('web media permissions require consent and handle $action',
+        (tester) async {
+      final previous = WebViewPlatform.instance;
+      final fake = _FakeWebPlatform();
+      WebViewPlatform.instance = fake;
+      final state = _PermissionTestState();
+      try {
+        await tester.pumpWidget(AppScope(
+          state: state,
+          child: const MaterialApp(
+            home: WebViewPage(
+              title: '网页测试',
+              url: 'https://example.com/media',
+            ),
+          ),
+        ));
+        await tester.pumpAndSettle();
+        final request = _FakePermissionRequest(const {
+          WebViewPermissionResourceType.camera,
+          WebViewPermissionResourceType.microphone,
+        });
+        fake.controller!.permissionRequest!(request);
+        await tester.pumpAndSettle();
+        expect(request.decisions, isEmpty);
+        expect(find.text('网页权限申请'), findsOneWidget);
+        expect(find.textContaining('https://example.com'), findsWidgets);
+        expect(find.textContaining('摄像头'), findsOneWidget);
+        expect(find.textContaining('麦克风'), findsOneWidget);
+        final concurrent = _FakePermissionRequest(const {
+          WebViewPermissionResourceType.camera,
+        });
+        fake.controller!.permissionRequest!(concurrent);
+        await tester.pump();
+        expect(concurrent.decisions, [false]);
+        switch (action) {
+          case 'allow':
+            await tester.tap(find.text('允许本次'));
+          case 'deny':
+            await tester.tap(find.text('拒绝'));
+          case 'dismiss':
+            await tester.binding.handlePopRoute();
+          case 'navigate':
+            fake.delegate!.pageStarted!('https://other.example.com/');
+          case 'account':
+            state.switchAccount();
+          case 'dispose':
+            await tester.pumpWidget(const SizedBox.shrink());
+        }
+        await tester.pumpAndSettle();
+        expect(request.decisions, [action == 'allow']);
+        expect(find.text('网页权限申请'), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      } finally {
+        if (previous != null) WebViewPlatform.instance = previous;
+        state.dispose();
+      }
+    });
+  }
+
   test('browser bridge correlates replies and rejects cancelled late results', () async {
     final previous = WebViewPlatform.instance;
     final fake = _FakeWebPlatform();
@@ -533,6 +594,14 @@ class _FakeController extends PlatformWebViewController {
   bool hasHistory = false;
   int backCalls = 0;
   Future<Object> Function(String)? javascript;
+  void Function(PlatformWebViewPermissionRequest)? permissionRequest;
+
+  @override
+  Future<void> setOnPlatformPermissionRequest(
+    void Function(PlatformWebViewPermissionRequest) callback,
+  ) async {
+    permissionRequest = callback;
+  }
 
   @override
   Future<Object> runJavaScriptReturningResult(String script) async =>
@@ -580,6 +649,34 @@ class _FakeController extends PlatformWebViewController {
   @override
   Future<void> goBack() async {
     backCalls++;
+  }
+}
+
+class _PermissionTestState extends AppState {
+  int generation = 0;
+
+  @override
+  int get dataGeneration => generation;
+
+  void switchAccount() {
+    generation++;
+    notifyListeners();
+  }
+}
+
+class _FakePermissionRequest extends PlatformWebViewPermissionRequest {
+  _FakePermissionRequest(Set<WebViewPermissionResourceType> types)
+      : super(types: types);
+  final decisions = <bool>[];
+
+  @override
+  Future<void> grant() async {
+    decisions.add(true);
+  }
+
+  @override
+  Future<void> deny() async {
+    decisions.add(false);
   }
 }
 

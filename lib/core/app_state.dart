@@ -932,6 +932,21 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Timer? _notifyTimer;
+
+  /// 刷新期间多路请求相继返回，合并成一次重建，避免全部页签连续重建。
+  void _notifyCoalesced() {
+    _notifyTimer ??= Timer(const Duration(milliseconds: 120), () {
+      _notifyTimer = null;
+      if (!_disposed) notifyListeners();
+    });
+  }
+
+  void _flushCoalesced() {
+    _notifyTimer?.cancel();
+    _notifyTimer = null;
+  }
+
   Future<void> _refreshLive({bool refreshUser = false}) {
     if (_portalRefresh != null) return _portalRefresh!;
     final generation = _dataGeneration;
@@ -990,7 +1005,7 @@ class AppState extends ChangeNotifier {
         apply(value);
         ok++;
       } catch (_) {}
-      if (current()) notifyListeners();
+      if (current()) _notifyCoalesced();
     }
 
     await Future.wait([
@@ -1007,6 +1022,7 @@ class AppState extends ChangeNotifier {
       guarded(c.fetchDataCards, (value) => dataCards = value),
       guarded(c.fetchHotSearch, (value) => hotSearches = value),
     ]);
+    _flushCoalesced();
     if (!current()) return;
     final renewed = c.sessionCookies().where((cookie) =>
         cookie['metadataKnown'] == true &&
@@ -1197,6 +1213,7 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _notifyTimer?.cancel();
     _client?.dispose();
     super.dispose();
   }

@@ -4,6 +4,8 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import android.webkit.CookieManager
+import android.Manifest
+import android.content.pm.PackageManager
 import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -11,8 +13,71 @@ import java.util.Locale
 import java.util.TimeZone
 
 class MainActivity : FlutterActivity() {
+    private val webPermissionRequestCode = 4101
+    private var webPermissionResult: MethodChannel.Result? = null
+    private var webPermissionResources = emptyList<String>()
+
+    private fun hasWebPermissions(resources: List<String>): Boolean = resources.all { resource ->
+        when (resource) {
+            "camera" -> checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            "microphone" -> checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            "location" -> checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            else -> false
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != webPermissionRequestCode) return
+        val result = webPermissionResult
+        webPermissionResult = null
+        result?.success(grantResults.isNotEmpty() && hasWebPermissions(webPermissionResources))
+        webPermissionResources = emptyList()
+    }
+
+    override fun onDestroy() {
+        webPermissionResult?.success(false)
+        webPermissionResult = null
+        super.onDestroy()
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "neu.portal/web_permissions")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "request") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                val resources = (call.arguments as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                if (resources.isEmpty() || webPermissionResult != null ||
+                    resources.any { it !in setOf("camera", "microphone", "location") }) {
+                    result.success(false)
+                    return@setMethodCallHandler
+                }
+                if (hasWebPermissions(resources)) {
+                    result.success(true)
+                    return@setMethodCallHandler
+                }
+                val permissions = resources.flatMap { resource ->
+                    when (resource) {
+                        "camera" -> listOf(Manifest.permission.CAMERA)
+                        "microphone" -> listOf(Manifest.permission.RECORD_AUDIO)
+                        "location" -> listOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)
+                        else -> emptyList()
+                    }
+                }.distinct().filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+                webPermissionResult = result
+                webPermissionResources = resources
+                try {
+                    requestPermissions(permissions.toTypedArray(), webPermissionRequestCode)
+                } catch (error: Exception) {
+                    webPermissionResult = null
+                    webPermissionResources = emptyList()
+                    result.error("permission_request_failed", error.message, null)
+                }
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "neu.portal/session_cookies")
             .setMethodCallHandler { call, result ->
                 val manager = CookieManager.getInstance()
