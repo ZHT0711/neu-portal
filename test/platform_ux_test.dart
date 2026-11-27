@@ -93,8 +93,13 @@ void main() {
               platform == TargetPlatform.iOS ? IosLiquidTabBar : NavigationBar),
           findsOneWidget);
       await capture(tester, '$name-home');
-      await tester.ensureVisible(find.text('服务大厅'));
-      await tester.tap(find.text('服务大厅'));
+      final servicesLink = find.text('服务大厅');
+      await Scrollable.ensureVisible(
+        tester.element(servicesLink),
+        alignment: 0.5,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(servicesLink);
       await tester.pumpAndSettle();
       expect(find.byType(ServicesPage), findsOneWidget);
       final field = find.descendant(

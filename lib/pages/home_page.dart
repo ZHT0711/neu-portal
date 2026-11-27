@@ -40,8 +40,15 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final s = AppScope.of(context);
     final now = DateTime.now();
-    final today = s.todayAgenda();
-    final next = s.nextAgenda();
+    final today = s.agendaForDate(now);
+    final currentMinutes = now.hour * 60 + now.minute;
+    CourseOccurrence? next;
+    for (final occurrence in today) {
+      if (occurrence.slot.endMinutes >= currentMinutes) {
+        next = occurrence;
+        break;
+      }
+    }
     final name = s.user.displayName;
     final college = s.user.department.isEmpty ? '东北大学' : s.user.department;
     final greeting = '${Fmt.greeting(now)}，$name';

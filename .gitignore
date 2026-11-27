@@ -26,3 +26,13 @@ ios/Pods/
 ios/.symlinks/
 ios/Flutter/App.framework
 ios/Flutter/Flutter.framework
+
+# 签名材料与本地环境配置不得提交
+*.jks
+*.keystore
+*.p12
+*.pfx
+key.properties
+.env
+.env.*
+!.env.example

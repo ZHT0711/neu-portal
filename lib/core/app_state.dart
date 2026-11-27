@@ -56,11 +56,18 @@ class AppState extends ChangeNotifier {
   bool liveAvailable = false; // 登录后实时数据是否全部就绪
 
   List<CourseSlot> scheduleTemplate = demoSchedule;
-  List<PortalApp> apps = demoApps;
+  List<PortalApp> _apps = List.unmodifiable(demoApps);
+  List<PortalApp> get apps => _apps;
+  set apps(List<PortalApp> value) => _apps = List.unmodifiable(value);
   List<NewsItem> news = demoNews;
   List<TodoItem> todos = demoTodos;
   List<DataCard> dataCards = demoDataCards;
-  List<ServiceSection> services = demoServices;
+  List<ServiceSection> _services = List.unmodifiable(demoServices);
+  List<ServiceSection> get services => _services;
+  set services(List<ServiceSection> value) => _services = List.unmodifiable([
+    for (final section in value)
+      ServiceSection(section.name, List.unmodifiable(section.entries)),
+  ]);
   List<GradeSemester> semesters = demoSemesters;
 
   final Map<LearningPlatform, LearningReport> learningReports = {};

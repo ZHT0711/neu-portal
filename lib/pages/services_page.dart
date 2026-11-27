@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 
@@ -25,6 +27,95 @@ class _ServicesPageState extends State<ServicesPage> {
   final _scroll = ScrollController();
   String _query = '';
   String _category = '全部';
+  Timer? _searchDebounce;
+
+  List<PortalApp>? _indexedAppsSource;
+  List<String>? _indexedAppNames;
+  List<String?>? _indexedAppDescriptions;
+  List<PortalApp>? _categorizedAppsSource;
+  List<String> _categories = const ['全部'];
+  List<ServiceSection>? _indexedServicesSource;
+  List<List<({ServiceEntry entry, String name})>> _indexedServices = [];
+
+  void _indexCategories(List<PortalApp> apps) {
+    if (identical(_categorizedAppsSource, apps)) return;
+
+    final counts = <String, int>{};
+    for (final app in apps) {
+      if (app.category.isNotEmpty) {
+        counts[app.category] = (counts[app.category] ?? 0) + 1;
+      }
+    }
+    final categories = counts.keys.toList()
+      ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
+    _categories = ['全部', ...categories];
+    _categorizedAppsSource = apps;
+  }
+
+  List<PortalApp> _searchApps(List<PortalApp> apps, String query) {
+    final cached = identical(_indexedAppsSource, apps);
+    final names = cached
+        ? _indexedAppNames!
+        : List<String>.filled(apps.length, '');
+    final descriptions = cached
+        ? _indexedAppDescriptions!
+        : List<String?>.filled(apps.length, null);
+    final matches = <PortalApp>[];
+
+    if (cached) {
+      for (var i = 0; i < apps.length; i++) {
+        final app = apps[i];
+        if (_category != '全部' && app.category != _category) continue;
+        if (names[i].contains(query)) {
+          matches.add(app);
+          continue;
+        }
+        final description = descriptions[i] ??= app.desc.toLowerCase();
+        if (description.contains(query)) matches.add(app);
+      }
+    } else {
+      for (var i = 0; i < apps.length; i++) {
+        final app = apps[i];
+        final name = app.name.toLowerCase();
+        names[i] = name;
+        if (_category != '全部' && app.category != _category) continue;
+        if (name.contains(query)) {
+          matches.add(app);
+          continue;
+        }
+        final description = app.desc.toLowerCase();
+        descriptions[i] = description;
+        if (description.contains(query)) matches.add(app);
+      }
+      _indexedAppNames = names;
+      _indexedAppDescriptions = descriptions;
+      _indexedAppsSource = apps;
+    }
+    return matches;
+  }
+
+  void _indexServices(List<ServiceSection> sections) {
+    if (identical(_indexedServicesSource, sections)) return;
+    _indexedServices = [
+      for (final section in sections)
+        [
+          for (final entry in section.entries)
+            (entry: entry, name: entry.name.toLowerCase()),
+        ],
+    ];
+    _indexedServicesSource = sections;
+  }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    if (value.trim().isEmpty) {
+      setState(() => _query = value);
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 80), () {
+      if (mounted) setState(() => _query = value);
+    });
+  }
 
   @override
   void initState() {
@@ -34,6 +125,7 @@ class _ServicesPageState extends State<ServicesPage> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     TabScroller.detach(2, _scroll);
     _queryCtrl.dispose();
     _scroll.dispose();
@@ -43,32 +135,50 @@ class _ServicesPageState extends State<ServicesPage> {
   @override
   Widget build(BuildContext context) {
     final s = AppScope.of(context);
+    _indexCategories(s.apps);
     final q = _query.trim().toLowerCase();
-    final byCate = _category == '全部'
-        ? s.apps
-        : s.apps.where((a) => a.category == _category).toList();
-    final apps = q.isEmpty
-        ? byCate
-        : byCate
-              .where(
-                (a) =>
-                    a.name.toLowerCase().contains(q) ||
-                    a.desc.toLowerCase().contains(q),
-              )
-              .toList();
-    final sections = q.isEmpty
-        ? s.services
-        : s.services
-              .map(
-                (sec) => ServiceSection(
-                  sec.name,
-                  sec.entries
-                      .where((e) => e.name.toLowerCase().contains(q))
-                      .toList(),
-                ),
-              )
-              .where((sec) => sec.entries.isNotEmpty)
-              .toList();
+    final hasQuery = q.isNotEmpty;
+    late final List<PortalApp> apps;
+    if (!hasQuery) {
+      if (_category == '全部') {
+        apps = s.apps;
+      } else {
+        apps = [
+          for (final app in s.apps)
+            if (app.category == _category) app,
+        ];
+      }
+      if (!identical(_indexedAppsSource, s.apps)) {
+        _indexedAppsSource = null;
+        _indexedAppNames = null;
+        _indexedAppDescriptions = null;
+      }
+    } else {
+      apps = _searchApps(s.apps, q);
+    }
+
+    late final List<ServiceSection> sections;
+    if (!hasQuery) {
+      sections = s.services;
+      if (!identical(_indexedServicesSource, s.services)) {
+        _indexedServicesSource = null;
+        _indexedServices = [];
+      }
+    } else {
+      _indexServices(s.services);
+      final matches = <ServiceSection>[];
+      for (var i = 0; i < s.services.length; i++) {
+        final section = s.services[i];
+        final entries = <ServiceEntry>[];
+        for (final indexed in _indexedServices[i]) {
+          if (indexed.name.contains(q)) entries.add(indexed.entry);
+        }
+        if (entries.isNotEmpty) {
+          matches.add(ServiceSection(section.name, entries));
+        }
+      }
+      sections = matches;
+    }
     final scheme = Theme.of(context).colorScheme;
     final noLocalMatch = apps.isEmpty && sections.isEmpty;
 
@@ -114,11 +224,12 @@ class _ServicesPageState extends State<ServicesPage> {
 
           // ── 搜索框 ──
           SliverPadding(
+            key: const ValueKey('services-search'),
             padding: EdgeInsets.fromLTRB(16, isApple ? 12 : 6, 16, 0),
             sliver: SliverToBoxAdapter(
               child: AdaptiveSearchField(
                 controller: _queryCtrl,
-                onChanged: (value) => setState(() => _query = value),
+                onChanged: _onSearchChanged,
               ),
             ),
           ),
@@ -130,10 +241,13 @@ class _ServicesPageState extends State<ServicesPage> {
               sliver: SliverToBoxAdapter(
                 child: _HotSearchRow(
                   hots: s.hotSearches,
-                  onPick: (kw) => setState(() {
-                    _queryCtrl.text = kw;
-                    _query = kw;
-                  }),
+                  onPick: (kw) {
+                    _searchDebounce?.cancel();
+                    setState(() {
+                      _queryCtrl.text = kw;
+                      _query = kw;
+                    });
+                  },
                 ),
               ),
             ),
@@ -141,7 +255,7 @@ class _ServicesPageState extends State<ServicesPage> {
           // ── 分类筛选 ──
           SliverToBoxAdapter(
             child: _CategoryChips(
-              categories: _categoriesOf(s.apps),
+              categories: _categories,
               selected: _category,
               onSelected: (c) => setState(() => _category = c),
             ),
@@ -344,18 +458,6 @@ class _SliverPanelGrid extends StatelessWidget {
       ),
     );
   }
-}
-
-List<String> _categoriesOf(List<PortalApp> apps) {
-  final counts = <String, int>{};
-  for (final a in apps) {
-    if (a.category.isNotEmpty) {
-      counts[a.category] = (counts[a.category] ?? 0) + 1;
-    }
-  }
-  final cats = counts.keys.toList()
-    ..sort((a, b) => (counts[b] ?? 0).compareTo(counts[a] ?? 0));
-  return ['全部', ...cats];
 }
 
 /// 门户热搜词（frontend/search/hot 实时数据）。

@@ -82,6 +82,32 @@ void main() {
     });
   }
 
+  test('service catalog assignments are immutable snapshots', () {
+    final state = AppState();
+    addTearDown(state.dispose);
+    final apps = [
+      const PortalApp(name: 'Original app', url: '', category: 'Original'),
+    ];
+    final entries = [const ServiceEntry('Original entry')];
+    final services = [ServiceSection('Original topic', entries)];
+    state
+      ..apps = apps
+      ..services = services;
+
+    apps[0] = const PortalApp(name: 'External mutation', url: '');
+    entries[0] = const ServiceEntry('External mutation');
+    expect(state.apps.single.name, 'Original app');
+    expect(state.services.single.entries.single.name, 'Original entry');
+    expect(
+      () => state.apps.add(const PortalApp(name: 'Illegal', url: '')),
+      throwsA(isA<UnsupportedError>()),
+    );
+    expect(
+      () => state.services.single.entries.clear(),
+      throwsA(isA<UnsupportedError>()),
+    );
+  });
+
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     platformTest(
       '$platform: service grids build only visible items',
@@ -142,6 +168,173 @@ void main() {
           findsOneWidget,
         );
         expect(find.text('Service 998'), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    platformTest(
+      '$platform: search keeps its editor and focus while typing and clearing',
+      platform,
+      (tester) async {
+        phone(tester);
+        final state = AppState();
+        addTearDown(state.dispose);
+        await tester.pumpWidget(
+          AppScope(
+            state: state,
+            child: const MaterialApp(home: ServicesPage()),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final search = find.descendant(
+          of: find.byType(AdaptiveSearchField),
+          matching: find.byType(EditableText),
+        );
+        await tester.tap(search);
+        await tester.pumpAndSettle();
+        final editor = tester.state<EditableTextState>(search);
+        expect(editor.widget.focusNode.hasFocus, isTrue);
+        for (final query in ['s', 'se', 'search', '', 'again']) {
+          tester.testTextInput.enterText(query);
+          await tester.pumpAndSettle();
+          expect(tester.state(search), same(editor));
+          expect(editor.widget.focusNode.hasFocus, isTrue);
+          expect(editor.widget.controller.text, query);
+          expect(tester.testTextInput.hasAnyClients, isTrue);
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    platformTest(
+      '$platform: rapid search edits coalesce and clearing applies immediately',
+      platform,
+      (tester) async {
+        phone(tester);
+        final state = AppState()
+          ..apps = []
+          ..services = [
+            const ServiceSection('Topic', [ServiceEntry('Unique needle')]),
+          ];
+        addTearDown(state.dispose);
+        await tester.pumpWidget(
+          AppScope(
+            state: state,
+            child: const MaterialApp(home: ServicesPage()),
+          ),
+        );
+        final onChanged = tester
+            .widget<AdaptiveSearchField>(find.byType(AdaptiveSearchField))
+            .onChanged;
+
+        onChanged('needle');
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(find.text('Unique needle'), findsOneWidget);
+
+        onChanged('absent-a');
+        await tester.pump(const Duration(milliseconds: 25));
+        onChanged('absent-b');
+        await tester.pump(const Duration(milliseconds: 25));
+        onChanged('absent-c');
+        await tester.pump(const Duration(milliseconds: 25));
+        expect(find.text('Unique needle'), findsOneWidget);
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(find.text('Unique needle'), findsNothing);
+
+        onChanged('');
+        await tester.pumpAndSettle();
+        expect(find.text('Unique needle'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    platformTest(
+      '$platform: duplicate service sections keep their own matches',
+      platform,
+      (tester) async {
+        phone(tester);
+        debugDefaultTargetPlatformOverride = platform;
+        final duplicate = const ServiceSection('Duplicate topic', [
+          ServiceEntry('Shared service'),
+        ]);
+        final state = AppState()
+          ..apps = [const PortalApp(name: 'Other app', url: '')]
+          ..services = [duplicate, duplicate];
+        addTearDown(state.dispose);
+        await tester.pumpWidget(
+          AppScope(
+            state: state,
+            child: const MaterialApp(home: ServicesPage()),
+          ),
+        );
+        final search = find.descendant(
+          of: find.byType(AdaptiveSearchField),
+          matching: find.byType(EditableText),
+        );
+        await tester.enterText(search, 'shared service');
+        await tester.pumpAndSettle();
+        expect(find.text('Duplicate topic'), findsNWidgets(2));
+        expect(find.text('Shared service'), findsNWidgets(2));
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    platformTest(
+      '$platform: replacing the portal catalogs refreshes search indexes',
+      platform,
+      (tester) async {
+        phone(tester);
+        debugDefaultTargetPlatformOverride = platform;
+        final state = _RefreshableState()
+          ..apps = [
+            const PortalApp(
+              name: 'Shared app',
+              url: '',
+              category: 'Old category',
+            ),
+          ]
+          ..services = [
+            const ServiceSection('Old topic', [ServiceEntry('Shared service')]),
+          ];
+        addTearDown(state.dispose);
+        await tester.pumpWidget(
+          AppScope(
+            state: state,
+            child: const MaterialApp(home: ServicesPage()),
+          ),
+        );
+        final search = find.descendant(
+          of: find.byType(AdaptiveSearchField),
+          matching: find.byType(EditableText),
+        );
+        await tester.enterText(search, 'shared');
+        await tester.pumpAndSettle();
+        expect(find.text('Old category'), findsOneWidget);
+        expect(find.text('Old topic'), findsOneWidget);
+
+        state
+          ..apps = [
+            const PortalApp(
+              name: 'Shared updated app',
+              url: '',
+              category: 'New category',
+            ),
+          ]
+          ..services = [
+            const ServiceSection('New topic', [
+              ServiceEntry('Shared updated service'),
+            ]),
+          ];
+        state.refreshData();
+        await tester.pumpAndSettle();
+
+        expect(find.text('New category'), findsOneWidget);
+        expect(find.text('Old category'), findsNothing);
+        expect(find.text('New topic'), findsOneWidget);
+        expect(find.text('Old topic'), findsNothing);
+        await tester.tap(find.text('New category'));
+        await tester.pumpAndSettle();
+        expect(find.text('Shared updated app'), findsOneWidget);
         expect(tester.takeException(), isNull);
       },
     );
